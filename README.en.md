@@ -1,123 +1,81 @@
 # Fast Steam Tools
 
-FST is a Windows/Linux tray app that adds an **Add to library for free** button to Steam store pages. It downloads available Lua/manifest archives using your Ryuu account, validates and installs them for a compatible loader, then optionally restarts Steam.
+<img src="packaging/linux/fst.svg" alt="FST" width="72">
 
-[Download v0.1.2](https://github.com/superhe11/FST/releases/tag/v0.1.2) · [Releases](https://github.com/superhe11/FST/releases) · [Русский](README.md)
+FST is a utility for adding games to Steam for free using Lua manifests.
 
-## Downloads
+[Download](https://github.com/superhe11/FST/releases) · [Report an issue](https://github.com/superhe11/FST/issues) · [Русский](README.md)
 
-- Windows x64: **FST-Setup.exe**.
-- Arch x86_64: **fast-steam-tools-bin-0.1.2-1-x86_64.pkg.tar.zst**.
-- Linux per-user installer: **fst-0.1.2-linux-x86_64.tar.gz**.
-- PKGBUILD and SHA256SUMS.txt are included in the release.
+## Installation
 
-The .NET runtime is bundled. Game files, manifests, account credentials and Steam loader binaries are not included; on Windows BetterSteamTools is downloaded on demand.
+### Windows
 
-## Windows installation
+Requires Windows 10/11 x64 and Steam.
 
-Requires Windows 10/11 x64 and Steam. Without a Lua loader added games never show up in the library. If no loader is present (no `OpenSteamTool.dll`, `xinput1_4.dll`, `dwmapi.dll` or `hid.dll` next to `steam.exe`), FST downloads [BetterSteamTools v1.0.4](https://github.com/madoiscool/BetterSteamTools/releases/tag/v1.0.4), verifies its pinned archive SHA-256 and places `dwmapi.dll`, `xinput1_4.dll` and `OpenSteamTool.dll` in the Steam folder. This OpenSteamTool fork uses `madoiscool/steam-monitor` and its mirrors. Foreign or manually changed DLLs are preserved. Source, version and file hashes are recorded for FST-owned installations, allowing an untouched OpenSteamTool copy installed by FST to migrate to BetterSteamTools.
+1. Download **FST-Setup.exe** from [Releases](https://github.com/superhe11/FST/releases).
+2. Run the installer, choose whether to start FST with Windows, and click **Install**.
+3. Wait for setup to finish and Steam to restart, then click **Done** to open FST.
 
-BetterSteamTools reads `config\stplug-in` even without `opensteamtool.toml`. FST mirrors Lua into that folder while keeping the selected primary folder (default `config\lua`) and custom `[lua].paths`. The library list and removal include all copies. Existing `opensteamtool.toml` files are preserved.
+Administrator privileges are not required. If Steam is not detected, select its folder in **Folders**.
 
-BetterSteamTools relies on signatures published separately for every Steam build. Right after a Steam update they may be missing for a few days: Steam then shows BetterSteamTools error dialogs and added games stay hidden. FST checks this at startup and after adding a game and warns in a notification; the Lua files stay in place and the games appear once BetterSteamTools is updated.
+### Arch Linux
 
-To avoid waiting, the Steam card in the main window offers **Roll back Steam**. FST takes the newest stable build covered by the signature tracker, finds its file list in the Wayback Machine, checks that Valve still serves every package, closes Steam and installs that build through Steam's own updater (packages come from Valve's CDN via a loopback address, and Steam verifies their hashes), then disables Steam updates with `steam.cfg`. **Allow updates** removes that `steam.cfg`; a steam.cfg written by someone else is left alone.
+Experimental x86_64 build for native Steam installed through pacman/AUR. Flatpak Steam is not supported.
 
-1. Run FST-Setup.exe.
-2. Choose whether to start FST with Windows and click Install.
-3. Setup installs to `%LOCALAPPDATA%\FST\bin` and restarts detected Steam.
-4. Click **Done** to open FST.
-5. Connect Ryuu and open a game page in the Steam store.
+1. Install **SLSsteam and lumalinux** using the [setup guide](https://github.com/jayool/lumalinux#manual-desktop-no-plugin).
+2. Download **fast-steam-tools-bin-0.1.2-1-x86_64.pkg.tar.zst** from [Releases](https://github.com/superhe11/FST/releases). Open a terminal in the download folder and run:
 
-Administrator privileges are not required. Use Folders if Steam was not detected. Click the tray icon to open the menu.
+   ```bash
+   sudo pacman -U ./fast-steam-tools-bin-0.1.2-1-x86_64.pkg.tar.zst
+   fst
+   ```
 
-## Arch Linux installation
+3. Restart Steam using the button in FST. If Steam or the loaders are not detected, select them in **Folders**.
 
-**Experimental:** targets native pacman/AUR Steam on x86_64. Flatpak and Windows Steam under Wine are not supported by this build.
+Saving your sign-in requires a running, unlocked password keyring, such as GNOME Keyring.
 
-First install **SLSsteam + lumalinux**, following the [upstream desktop setup](https://github.com/jayool/lumalinux#manual-desktop-no-plugin). FST does not install these components automatically. Both are required for the native download backend.
+For installation from the archive and additional settings, see the [Linux guide](packaging/linux/README-LINUX.md).
 
-Download the package and run:
+## Usage
 
-```bash
-sudo pacman -U ./fast-steam-tools-bin-0.1.2-1-x86_64.pkg.tar.zst
-fst
-```
+1. Click **Connect** in FST and sign in through Discord. Your connection is saved for future launches.
+2. Open the game's store page inside Steam.
+3. Click **Add to library for free** and wait for completion. FST installs the Lua and manifests, then restarts Steam if that setting is enabled.
 
-A running, unlocked Secret Service keyring is required to save Ryuu sign-in. `libsecret` supplies secret-tool. Wayland needs XWayland; GNOME may need an AppIndicator/StatusNotifier extension for the tray icon.
+FST runs in the system tray. Click its icon to open the menu. Use **RU / en** to switch the interface and log language.
 
-Alternatively:
+In **Added Lua**, search by game name or AppID and remove one or more entries.
 
-```bash
-tar -xzf fst-0.1.2-linux-x86_64.tar.gz
-cd fst-linux-x64
-bash install.sh
-```
+## Troubleshooting
 
-The script asks about startup and opens FST after the final Enter. See [Linux installation details](packaging/linux/README-LINUX.md).
+- **No button on the game page:** restart Steam through FST.
+- **Steam not detected:** select its folder in **Folders**.
+- **Installation or connection error:** open **Logs**. If setup has not finished yet, press Win+R on Windows and enter `%LOCALAPPDATA%\FST\fst.log`.
 
-Use Folders to select the Steam directory, SLSsteam.so and liblumalinux.so if automatic detection failed. Restart Steam through FST once to enable CEF debugging and load the installed components.
-
-## Ryuu sign-in
-
-FST first restores the key from the system keyring, then tries Ryuu's session-discovery API. If no session is found, it opens Discord sign-in in your browser and polls for completion. The key is saved for future launches; there is no manual token-copying workflow.
-
-Windows uses Credential Manager (`FST/Ryuu`). Linux uses Secret Service attributes `application=fst`, `service=ryuu`. FST does not read Discord passwords or browser cookies. Different browser/app VPN routes may prevent session discovery.
-
-Disconnect removes the local saved key. It does not revoke a server-side Ryuu session; Ryuu may return that session when you connect again. Service limits and file availability are determined by Ryuu.
-
-## Features
-
-- Steam store integration, with a Denuvo label only when declared by the store page.
-- RU/EN interface and logs.
-- Tray menu and optional startup.
-- Added Lua list with AppID/name search and multi-selection removal.
-- Archive validation, backups and rollback on write errors.
-- Linux: SLSsteam library registration and lumalinux depot-key handoff.
-
-FST parses supported declarative Lua statements as data; it never executes downloaded Lua. Removing Lua does not delete installed game files. Game launch or DRM compatibility is not guaranteed.
+If the problem persists, [open an issue](https://github.com/superhe11/FST/issues) with the error message, FST version and operating system.
 
 ## Uninstall
 
-Windows: use **Uninstall FST** in the app. Removing added Lua is a separate, initially unchecked option.
+On Windows, click **Uninstall FST** in the app. You can also choose to remove added Lua.
 
-Arch package:
+On Arch Linux:
 
 ```bash
 sudo pacman -R fast-steam-tools-bin
 ```
 
-Per-user Linux installation: exit FST and run `bash uninstall.sh` from the extracted archive. The script preserves Lua and recovery backups; the in-app screen additionally offers Lua removal. Separately installed Steam loaders are not removed.
-
-## Build and test
+## Build from source
 
 Requires .NET 9 SDK. From the repository root:
 
 ```powershell
-# Windows + setup executable
+# Windows
 powershell -NoProfile -File tools/Build-Setup.ps1
 ```
 
 ```bash
-# Linux archive + Arch package
+# Linux
 bash tools/Build-Linux.sh
-
-# Offline core checks
-dotnet run --project tests/Fst.Tests/Fst.Tests.csproj -c Release
-
-# Isolated Linux backend/package checks
-./release/fst-linux-x64/app/fst --self-test
-bash tools/Test-Linux-Package.sh
 ```
 
-Outputs are in `release/`. The Linux packager also requires tar, zstd, sha256sum and standard shell tools.
-
-v0.1.2 passed 114 offline core checks, 7 Windows integration checks and 32 Linux checks locally. Windows compilation, RU/EN Linux GUI rendering, package contents and checksums were verified. **Linux testing used WSL, not an actual Arch Steam client. Game downloading/launching on Arch has not been verified.**
-
-On Windows, also run `dotnet run --project tests/Fst.Windows.Tests/Fst.Windows.Tests.csproj -c Release` to check loader directories, Lua installation/removal and the operation lock. `dotnet run --project tests/Fst.Tests/Fst.Tests.csproj -c Release -- --live-loader` downloads the pinned BetterSteamTools ZIP into an isolated sandbox without executing its DLLs, modifying Steam or consuming Ryuu quota. `dotnet run --project tests/Fst.Windows.Tests/Fst.Windows.Tests.csproj -c Release -- --verify-steam-root "A:\Steam"` checks the live tracker using copies of the installed Steam DLLs without a signature cache; the installed client is left unchanged.
-
-For troubleshooting, open Logs and check Steam paths, loader installation/compatibility and the local CEF endpoint on `127.0.0.1:8080`. Report OS, FST version, Steam installation type and the error in [Issues](https://github.com/superhe11/FST/issues); do not upload keys, cookies or credential files.
-
-Dependency notices: [packaging/linux/LICENSES](packaging/linux/LICENSES).
-
-C# formatting is defined in `.editorconfig`. Apply it with `pwsh -File tools/Format-Code.ps1`, or verify without changes with `pwsh -File tools/Format-Code.ps1 -Check`. The command covers Git-tracked C# sources, including both desktop UIs and tests. CI enforces this check on Windows and Linux.
+Build outputs are saved in `release/`.
