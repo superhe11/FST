@@ -9,6 +9,7 @@ public sealed class CdpInjector(JobService jobs)
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(2) };
     private readonly Dictionary<string, ClientWebSocket> sockets = new();
     private int sequence;
+    // Last logged error per source, so a failure repeating every poll is written to the log once.
     private string? lastPollingError;
     private readonly Dictionary<string, string> socketErrors = new();
     public int StoreTabs
@@ -84,9 +85,7 @@ public sealed class CdpInjector(JobService jobs)
                     {
                         if (sockets.Remove(id, out var old))
                             old.Dispose();
-
-                        var error = $"{e.GetType().Name}: {e.Message}";
-
+                        var error = Describe(e);
                         if (!socketErrors.TryGetValue(id, out var previous) || previous != error)
                         {
                             JobService.Log("Ошибка WebSocket Steam CEF ({0}): {1}", id, error);
@@ -99,15 +98,16 @@ public sealed class CdpInjector(JobService jobs)
                     sockets[id].Dispose();
                     sockets.Remove(id);
                 }
+                // Forget errors of tabs that were closed or left the store, so the map does not grow for the whole session.
+                foreach (var id in socketErrors.Keys.Where(k => !live.Contains(k)).ToArray())
+                    socketErrors.Remove(id);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
             catch (Exception e)
             {
                 Connected = false;
                 StoreTabs = 0;
-
-                var error = $"{e.GetType().Name}: {e.Message}";
-
+                var error = Describe(e);
                 if (lastPollingError != error)
                 {
                     JobService.Log("Ошибка чтения Steam CEF: {0}", error);
@@ -120,6 +120,7 @@ public sealed class CdpInjector(JobService jobs)
             socket.Dispose();
         http.Dispose();
     }
+    private static string Describe(Exception e) => e.GetType().Name + ": " + e.Message;
     private async Task<string?> Evaluate(ClientWebSocket socket, string expression, CancellationToken ct)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

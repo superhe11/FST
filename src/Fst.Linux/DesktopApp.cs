@@ -32,30 +32,16 @@ public sealed partial class DesktopApp : Application
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
     public override void OnFrameworkInitializationCompleted()
     {
-        void Trace(string message)
-        {
-            File.AppendAllText(
-                "/tmp/fst-startup-trace.log",
-                $"{DateTimeOffset.Now:O} {message}\n"
-            );
-        }
-
-        File.WriteAllText("/tmp/fst-startup-trace.log", "Entered startup\n");
-        Trace("Checking application lifetime");
         if (ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
             return;
         lifetime = desktop;
         lifetime.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         preview = desktop.Args?.Any(a => a is "--preview" or "--preview-en") == true;
-        Trace("Before Settings.Load");
         settings = Settings.Load();
-        Trace("After Settings.Load");
         L.Language = desktop.Args?.Contains("--preview-en") == true ? "en" : settings.Language;
-        Trace("Before RyuuSession");
+        // secret-tool may block on a locked keyring, so the saved key is loaded in the background below.
         session = new RyuuSession(loadSaved: false);
-        Trace("After RyuuSession");
         jobs = new(settings, session, Notify, () => Dispatcher.UIThread.Post(OpenConnection));
-        Trace("After JobService constructor");
         injector = new(jobs);
         if (!preview)
         {
@@ -74,17 +60,12 @@ public sealed partial class DesktopApp : Application
                 }
             });
         }
-        Trace("Before CreateMain");
         main = CreateMain();
-        Trace("After CreateMain");
         lifetime.MainWindow = main;
         tray = new TrayIcon { Icon = Icon(), ToolTipText = "", IsVisible = true };
-        Trace("After tray creation");
         tray.Clicked += (_, _) => ShowMain();
         TrayIcon.SetIcons(this, new TrayIcons { tray });
-        Trace("After TrayIcon.SetIcons");
         UpdateTray();
-        Trace("After UpdateTray");
         L.Changed += () => Dispatcher.UIThread.Post(() => { settings.Language = L.Language; settings.Save(); JobService.RefreshLogLanguage(); RebuildMain(); UpdateTray(); });
         timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         timer.Tick += (_, _) =>
@@ -101,7 +82,7 @@ public sealed partial class DesktopApp : Application
         lifetime.Exit += (_, _) => { stopping.Cancel(); timer.Stop(); tray.Dispose(); };
         if (!preview)
         {
-           _ = Task.Run(async () =>
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -142,7 +123,8 @@ public sealed partial class DesktopApp : Application
         }, TimeSpan.FromSeconds(2));
         base.OnFrameworkInitializationCompleted();
 
-        if (!preview && !desktop.Args!.Contains("--background"))
+        // Shown only after the framework has finished initializing (PR #4 moved it here to fix the hidden main window).
+        if (!preview && desktop.Args?.Contains("--background") != true)
             Dispatcher.UIThread.Post(ShowMain);
     }
     private static WindowIcon Icon()
@@ -210,17 +192,6 @@ public sealed partial class DesktopApp : Application
     private Window CreateMain()
     {
         var window = Window(584);
-        window.Opened += (_, _) =>
-            File.AppendAllText(
-                Path.Combine(Settings.DataRoot, "window-debug.log"),
-                $"{DateTimeOffset.Now:O} Window Opened\n"
-        );
-
-       window.Activated += (_, _) =>
-            File.AppendAllText(
-                Path.Combine(Settings.DataRoot, "window-debug.log"),
-                $"{DateTimeOffset.Now:O} Window Activated\n"
-        );
         window.Closing += (_, e) => { if (!exiting) { e.Cancel = true; window.Hide(); } };
         SetMainContent(window);
         return window;

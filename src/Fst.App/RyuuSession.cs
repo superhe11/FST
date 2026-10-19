@@ -6,7 +6,8 @@ namespace Fst.App;
 public sealed class RyuuSession
 {
     private readonly SemaphoreSlim gate = new(1, 1);
-    private string key;
+    // Written by LoadSavedAsync on a background thread and read by the UI through Connected.
+    private volatile string key;
     private string? rejectedKey;
     public bool Connected => !string.IsNullOrWhiteSpace(key) && key != rejectedKey;
     public string Username { get; private set; } = "";
@@ -16,22 +17,18 @@ public sealed class RyuuSession
         get => L.T(status); private set => status = value;
     }
     public RyuuSession(bool loadSaved = true) => key = loadSaved ? SecretStore.Read() : "";
+    /// <summary>Loads the saved key off the UI thread for sessions created with loadSaved: false; a key set meanwhile wins.</summary>
     public async Task LoadSavedAsync(CancellationToken ct = default)
     {
         await gate.WaitAsync(ct);
-
         try
         {
             if (!string.IsNullOrWhiteSpace(key))
                 return;
-
             key = await SecretStore.ReadAsync(ct);
             rejectedKey = null;
         }
-        finally
-        {
-            gate.Release();
-        }
+        finally { gate.Release(); }
     }
     public string RequireKey() => Connected ? key : throw new RyuuAuthException();
     public void Reject(string usedKey)

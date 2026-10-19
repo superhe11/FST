@@ -73,12 +73,7 @@ public static class ProcessRunner
             result.ArgumentList.Add(arg);
         return result;
     }
-    public static async Task<(int Code, string Output)> CaptureAsync(
-    string command,
-    string[] args,
-    string? input = null,
-    int timeoutSeconds = 20,
-    CancellationToken cancellationToken = default)
+    public static async Task<(int Code, string Output)> CaptureAsync(string command, string[] args, string? input = null, int timeoutSeconds = 20, CancellationToken cancellationToken = default)
     {
         var start = StartInfo(command, args);
         start.RedirectStandardOutput = true;
@@ -107,14 +102,25 @@ public static class ProcessRunner
 
 public static class SecretStore
 {
+    private static readonly string[] Lookup = ["lookup", "application", "fst", "service", "ryuu"];
+    private static string Secret((int Code, string Output) result) => result.Code == 0 ? result.Output.TrimEnd('\r', '\n') : "";
     public static string Read()
     {
         try
         {
-            var result = ProcessRunner.CaptureAsync("secret-tool", ["lookup", "application", "fst", "service", "ryuu"]).GetAwaiter().GetResult();
-            return result.Code == 0 ? result.Output.TrimEnd('\r', '\n') : "";
+            return Secret(ProcessRunner.CaptureAsync("secret-tool", Lookup).GetAwaiter().GetResult());
         }
         catch (System.ComponentModel.Win32Exception) { return ""; }
+    }
+    public static async Task<string> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return Secret(await ProcessRunner.CaptureAsync("secret-tool", Lookup, cancellationToken: cancellationToken));
+        }
+        catch (System.ComponentModel.Win32Exception) { return ""; }
+        // The 20 s secret-tool timeout (for example, a keyring unlock prompt left open) means "no saved key", not a failure.
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { return ""; }
     }
     public static void Write(string secret)
     {
@@ -136,29 +142,6 @@ public static class SecretStore
                 throw new IOException(L.T("Не удалось удалить ключ из хранилища."));
         }
         catch (System.ComponentModel.Win32Exception) { }
-    }
-    public static async Task<string> ReadAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            var result = await ProcessRunner.CaptureAsync(
-                "secret-tool",
-                ["lookup", "application", "fst", "service", "ryuu"],
-                timeoutSeconds: 20,
-                cancellationToken: cancellationToken);
-
-            return result.Code == 0
-                ? result.Output.TrimEnd('\r', '\n')
-                : "";
-        }
-        catch (System.ComponentModel.Win32Exception)
-        {
-            return "";
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return "";
-        }
     }
 }
 
