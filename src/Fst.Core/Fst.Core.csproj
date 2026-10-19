@@ -3,5 +3,8 @@
   <ItemGroup>
     <PackageReference Include="Tomlyn" Version="2.10.1" />
     <EmbeddedResource Include="../../packaging/linux/LICENSES/Tomlyn-BSD-2-Clause.txt" LogicalName="Fst.Core.Licenses.Tomlyn.txt" />
+    <EmbeddedResource Include="SteamCompatibility/pattern/steamclient/*.toml" LogicalName="Fst.Core.Compatibility.pattern.steamclient.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="SteamCompatibility/pattern/steamui/*.toml" LogicalName="Fst.Core.Compatibility.pattern.steamui.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="SteamCompatibility/ipc/steamclient/*.toml" LogicalName="Fst.Core.Compatibility.ipc.steamclient.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

@@ -145,7 +145,7 @@ internal sealed class SetupForm : FstWindow
             setup.ArgumentList.Add("--restart-steam");
             using (var process = Process.Start(setup) ?? throw new IOException())
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(300));
                 await process.WaitForExitAsync(timeout.Token);
                 if (process.ExitCode != 0)
                     throw new IOException(T("Не удалось настроить FST. Подробности в логах.", "Could not configure FST. See the logs for details."));

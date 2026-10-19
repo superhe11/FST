@@ -9,6 +9,7 @@ using Tomlyn.Model;
 namespace Fst.Core;
 
 public sealed record LoaderState(string Version, Dictionary<string, string> Files, string? Source = null);
+public sealed record SignatureInstallation(string[] Installed, string[] Unsupported, string[] Unavailable);
 
 public static class LuaLoader
 {
@@ -26,6 +27,179 @@ public static class LuaLoader
     // BetterSteamTools hooks Steam through signatures (pattern) and an IPC spec (ipc) published per steamclient64.dll/steamui.dll build.
     private static readonly (string Channel, string Component, string File)[] Components = [("pattern", "steamclient", "steamclient64.dll"), ("pattern", "steamui", "steamui.dll"), ("ipc", "steamclient", "steamclient64.dll")];
     private static readonly string[] TrackerMirrors = ["https://raw.githubusercontent.com/madoiscool/steam-monitor/{0}/{1}/{2}.toml", "https://cdn.jsdelivr.net/gh/madoiscool/steam-monitor@{0}/{1}/{2}.toml", "https://git.lua.tools/luatools/steam-monitor/raw/branch/{0}/{1}/{2}.toml"];
+    public const string SignaturesUnavailableMessage = "Не удалось подготовить файлы совместимости Steam. Проверьте интернет и повторите. Подробности в логах.";
+
+    /// <summary>Downloads validated metadata into the loader's cache before Steam starts. Existing valid cache works offline.</summary>
+    public static async Task<SignatureInstallation> EnsureSignaturesAsync(string steamRoot, HttpClient? httpClient = null, CancellationToken ct = default, Action<string, object?[]>? log = null)
+    {
+        if (!File.Exists(Path.Combine(steamRoot, "OpenSteamTool.dll")))
+            return new([], [], []); // Another loader manages its own metadata.
+        var client = httpClient ?? new HttpClient();
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(TimeSpan.FromSeconds(120));
+        var installed = new List<string>();
+        var unsupported = new HashSet<string>();
+        var unavailable = new HashSet<string>();
+        var observed = new Dictionary<string, string>();
+        try
+        {
+            foreach (var (channel, component, file) in Components)
+            {
+                ct.ThrowIfCancellationRequested();
+                var source = Path.Combine(steamRoot, file);
+                var key = channel + "/" + component;
+                if (!File.Exists(source))
+                {
+                    log?.Invoke("Файл Steam не найден: {0}", [source]);
+                    unavailable.Add(file);
+                    continue;
+                }
+                string hash;
+                using (var stream = File.OpenRead(source))
+                    hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+                observed.TryAdd(source, hash);
+                log?.Invoke("Подготовка совместимости Steam: {0}, SHA-256 {1}, каталог {2}", [key, hash, steamRoot]);
+                var directory = Path.Combine(steamRoot, "opensteamtool", channel, component);
+                var cache = Path.Combine(directory, hash + ".toml");
+                // Reject links before reading or writing cache files outside the selected Steam root.
+                foreach (var path in new[] { steamRoot, Path.Combine(steamRoot, "opensteamtool"), Path.Combine(steamRoot, "opensteamtool", channel), directory, cache })
+                    if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                        throw new IOException("Каталог установки содержит ссылку: " + path);
+                try
+                {
+                    if (File.Exists(cache) && new FileInfo(cache).Length <= 2 * 1024 * 1024 && UsableTrackerToml(channel, await File.ReadAllTextAsync(cache, ct)))
+                    {
+                        log?.Invoke("Используется кэш совместимости Steam: {0}", [cache]);
+                        continue;
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    log?.Invoke("Не удалось прочитать кэш совместимости Steam: {0}: {1}", [cache, e.Message]);
+                }
+                // Match the exact Steam DLL hash: metadata for a different build is never substituted.
+                if (BundledTrackerToml(channel, component, hash) is { } bundled)
+                {
+                    await SaveTrackerCacheAsync(source, hash, cache, bundled, ct);
+                    installed.Add(key);
+                    log?.Invoke("Установлен встроенный файл совместимости Steam: {0}", [cache]);
+                    continue;
+                }
+                var missing = 0;
+                var saved = false;
+                foreach (var mirror in TrackerMirrors)
+                {
+                    using var attempt = CancellationTokenSource.CreateLinkedTokenSource(budget.Token);
+                    attempt.CancelAfter(TimeSpan.FromSeconds(12));
+                    var url = string.Format(mirror, channel, component, hash);
+                    var writing = false;
+                    try
+                    {
+                        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                        request.Headers.UserAgent.ParseAdd("FST/0.1");
+                        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, attempt.Token);
+                        log?.Invoke("Зеркало совместимости Steam: {0}: HTTP {1}, тип {2}, размер {3}", [url, (int)response.StatusCode, response.Content.Headers.ContentType?.ToString() ?? "?", response.Content.Headers.ContentLength?.ToString() ?? "?"]);
+                        if (response.StatusCode == HttpStatusCode.NotFound)
+                        {
+                            missing++;
+                            continue;
+                        }
+                        response.EnsureSuccessStatusCode();
+                        if (response.Content.Headers.ContentLength > 2 * 1024 * 1024)
+                        {
+                            log?.Invoke("Ответ совместимости Steam превышает 2 МиБ: {0}", [url]);
+                            continue;
+                        }
+                        await using var body = await response.Content.ReadAsStreamAsync(attempt.Token);
+                        using var buffer = new MemoryStream();
+                        var chunk = new byte[8192];
+                        int count;
+                        while ((count = await body.ReadAsync(chunk, attempt.Token)) > 0)
+                        {
+                            if (buffer.Length + count > 2 * 1024 * 1024)
+                                throw new InvalidDataException("Signature response exceeds size limit.");
+                            buffer.Write(chunk, 0, count);
+                        }
+                        var text = new System.Text.UTF8Encoding(false, true).GetString(buffer.ToArray()).TrimStart('\uFEFF');
+                        if (!UsableTrackerToml(channel, text))
+                        {
+                            log?.Invoke("Зеркало вернуло неверный TOML совместимости Steam: {0}, байт {1}", [url, buffer.Length]);
+                            continue;
+                        }
+                        // Steam may have updated while metadata was being fetched. Never claim the old build is ready.
+                        writing = true;
+                        await SaveTrackerCacheAsync(source, hash, cache, text, attempt.Token);
+                        installed.Add(key);
+                        log?.Invoke("Файл совместимости Steam сохранён: {0}", [cache]);
+                        saved = true;
+                        break;
+                    }
+                    catch (Exception e) when (e is HttpRequestException or InvalidDataException or System.Text.DecoderFallbackException)
+                    {
+                        log?.Invoke("Ошибка зеркала совместимости Steam: {0}: {1}", [url, e.GetBaseException().Message]);
+                    }
+                    catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                    {
+                        log?.Invoke("Таймаут зеркала совместимости Steam: {0}, лимит {1} с", [url, budget.IsCancellationRequested ? 120 : 12]);
+                    }
+                    catch (IOException e) when (!writing)
+                    {
+                        log?.Invoke("Ошибка зеркала совместимости Steam: {0}: {1}", [url, e.GetBaseException().Message]);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        log?.Invoke("Ошибка чтения или записи совместимости Steam: {0}: {1}", [cache, e.Message]);
+                        throw;
+                    }
+                }
+                if (!saved)
+                {
+                    if (missing == TrackerMirrors.Length)
+                        unsupported.Add(file);
+                    else
+                        unavailable.Add(file);
+                }
+            }
+            ct.ThrowIfCancellationRequested();
+            foreach (var (path, expected) in observed)
+            {
+                using var stream = File.OpenRead(path);
+                if (!Convert.ToHexString(SHA256.HashData(stream)).Equals(expected, StringComparison.OrdinalIgnoreCase))
+                    unavailable.Add(Path.GetFileName(path));
+            }
+            return new(installed.ToArray(), unsupported.ToArray(), unavailable.ToArray());
+        }
+        finally { if (httpClient == null) client.Dispose(); }
+    }
+
+    /// <summary>Validated metadata shipped for an exact Steam DLL hash, or null for builds outside the snapshot.</summary>
+    public static string? BundledTrackerToml(string channel, string component, string hash)
+    {
+        if (channel is not "pattern" and not "ipc" || component is not "steamclient" and not "steamui"
+            || !Regex.IsMatch(hash, "^[0-9a-fA-F]{64}$"))
+            return null;
+        using var resource = typeof(LuaLoader).Assembly.GetManifestResourceStream($"Fst.Core.Compatibility.{channel}.{component}.{hash.ToLowerInvariant()}.toml");
+        if (resource == null)
+            return null;
+        using var reader = new StreamReader(resource);
+        var text = reader.ReadToEnd();
+        return UsableTrackerToml(channel, text) ? text : null;
+    }
+
+    private static async Task SaveTrackerCacheAsync(string source, string expectedHash, string cache, string text, CancellationToken ct)
+    {
+        using (var stream = File.OpenRead(source))
+            if (!Convert.ToHexString(SHA256.HashData(stream)).Equals(expectedHash, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Steam changed during signature installation.");
+        Directory.CreateDirectory(Path.GetDirectoryName(cache)!);
+        var temporary = cache + ".fst-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            await File.WriteAllTextAsync(temporary, text, ct);
+            File.Move(temporary, cache, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
 
     // BetterSteamTools reads this directory even without opensteamtool.toml. Keep the user's primary Lua path too.
     public static string[] DefaultLuaDirectories(string steamRoot) => File.Exists(Path.Combine(steamRoot, "OpenSteamTool.dll"))

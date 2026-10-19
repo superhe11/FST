@@ -1,0 +1,20 @@
+[
+  {
+    "File": "pattern/steamclient/e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e.toml",
+    "Source": "https://raw.githubusercontent.com/madoiscool/steam-monitor/673ce8a73d2fce3e3b9151c76c8e07c7ae463157/steamclient/e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e.toml",
+    "Sha256": "d91928573c26f319a3746ea89848a30f3d202cbe7244502047ec3ed225d58945",
+    "Length": 3170
+  },
+  {
+    "File": "pattern/steamui/1b9457943205dc3af0bd53463ba331cbd2a381388699705c02271aac7a2b1252.toml",
+    "Source": "https://raw.githubusercontent.com/madoiscool/steam-monitor/673ce8a73d2fce3e3b9151c76c8e07c7ae463157/steamui/1b9457943205dc3af0bd53463ba331cbd2a381388699705c02271aac7a2b1252.toml",
+    "Sha256": "dc5600964a31903ebfa67cceceb3a88224a944f87c3e1e08c854fe011e5d4da5",
+    "Length": 1307
+  },
+  {
+    "File": "ipc/steamclient/e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e.toml",
+    "Source": "https://raw.githubusercontent.com/madoiscool/steam-monitor/a5cbe7582adb2b6edd12efc4407ecfdbcb421118/steamclient/e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e.toml",
+    "Sha256": "f0e29ed84bfdb7036310e9ad062900356e73f4eaee0b18240896b58cf7453973",
+    "Length": 934
+  }
+]

@@ -211,6 +211,13 @@ Check((await LuaLoader.UnsupportedSteamFilesAsync(trackerSteam, new HttpClient(n
 Check((await LuaLoader.UnsupportedSteamFilesAsync(trackerSteam, new HttpClient(new FakeHandler(r => new HttpResponseMessage(r.RequestUri!.Host == "raw.githubusercontent.com" ? HttpStatusCode.NotFound : HttpStatusCode.OK))))).Length == 0, "fallback tracker is checked after a primary mirror 404");
 const string patternToml = "[0xD05E26A2]\nname = \"AddProtobufAsBinary\"\nrva = \"0x9CFE90\"\nsig = \"40 53 55 56\"\n";
 const string ipcToml = "[IClientUser]\ninterface_id = 1\nvtable_rva = \"0x1301A60\"\n";
+const string bundledClientHash = "e9045710ec7ee47d7b7488d1c5dda2d933dec7e251e965967a5c48f4df68eb4e";
+const string bundledUiHash = "1b9457943205dc3af0bd53463ba331cbd2a381388699705c02271aac7a2b1252";
+Check(LuaLoader.BundledTrackerToml("pattern", "steamclient", bundledClientHash) is { } bundledPattern && LuaLoader.UsableTrackerToml("pattern", bundledPattern), "embedded Steam client patterns are usable");
+Check(LuaLoader.BundledTrackerToml("pattern", "steamui", bundledUiHash) is { } bundledUi && LuaLoader.UsableTrackerToml("pattern", bundledUi), "embedded Steam UI patterns are usable");
+Check(LuaLoader.BundledTrackerToml("ipc", "steamclient", bundledClientHash) is { } bundledIpc && LuaLoader.UsableTrackerToml("ipc", bundledIpc), "embedded Steam client IPC metadata is usable");
+Check(LuaLoader.BundledTrackerToml("pattern", "steamclient", new string('0', 64)) == null && LuaLoader.BundledTrackerToml("pattern", "steamclient", bundledUiHash) == null, "bundled metadata cannot substitute a different Steam build or component");
+Check(LuaLoader.BundledTrackerToml("pattern", "steamui", bundledUiHash.ToUpperInvariant()) != null, "embedded metadata matches DLL hash without case sensitivity");
 Check(LuaLoader.UsableTrackerToml("pattern", patternToml) && LuaLoader.UsableTrackerToml("ipc", ipcToml), "valid cached signatures accepted");
 Check(!LuaLoader.UsableTrackerToml("pattern", "") && !LuaLoader.UsableTrackerToml("ipc", " \n") && !LuaLoader.UsableTrackerToml("pattern", "[0x1]\nname = \"x\"\n") && !LuaLoader.UsableTrackerToml("ipc", patternToml), "empty or entry-less cache rejected like BetterSteamTools");
 foreach (var (channel, validCache) in new[] { ("pattern", patternToml), ("ipc", ipcToml) })
@@ -233,6 +240,81 @@ File.WriteAllText(cachedPattern, patternToml);
 Check((await LuaLoader.UnsupportedSteamFilesAsync(trackerSteam, PatternClient404())).Length == 0, "cached signatures count as supported");
 Check((await LuaLoader.UnsupportedSteamFilesAsync(trackerSteam, new HttpClient(new FakeHandler(r => new HttpResponseMessage(r.RequestUri!.AbsolutePath.Contains("ipc/") ? HttpStatusCode.NotFound : HttpStatusCode.OK))))).SequenceEqual(["steamclient64.dll"]), "missing IPC spec detected");
 Check((await LuaLoader.UnsupportedSteamFilesAsync(loaderSteam)).Length == 0, "tracker is not queried without BetterSteamTools");
+// Fresh installation must populate all metadata, rather than just accepting an HTTP 200.
+var freshTracker = Path.Combine(testRoot, "fresh-signatures");
+Directory.CreateDirectory(freshTracker);
+foreach (var file in new[] { "OpenSteamTool.dll", "steamclient64.dll", "steamui.dll" }) File.WriteAllText(Path.Combine(freshTracker, file), file);
+HttpResponseMessage Metadata(HttpRequestMessage request) => new(HttpStatusCode.OK) { Content = new StringContent(request.RequestUri!.AbsolutePath.Contains("/ipc/") ? ipcToml : patternToml) };
+var primaryRequests = 0;
+var signatureDiagnostics = new List<string>();
+void SignatureLog(string template, object?[] values) => signatureDiagnostics.Add(string.Format(template, values));
+using var fallbackMetadata = new HttpClient(new FakeHandler(request =>
+{
+    if (request.RequestUri!.Host == "raw.githubusercontent.com")
+    {
+        primaryRequests++;
+        return new(HttpStatusCode.OK)
+        {
+            Content = new StringContent("<html>proxy error</html>")
+        };
+    }
+    return Metadata(request);
+}));
+var prepared = await LuaLoader.EnsureSignaturesAsync(freshTracker, fallbackMetadata, log: SignatureLog);
+Check(prepared.Installed.Length == 3 && prepared.Unsupported.Length == 0 && prepared.Unavailable.Length == 0 && primaryRequests == 3, "fresh install downloads all three metadata files and rejects HTML before fallback");
+Check(signatureDiagnostics.Any(line => line.Contains("https://raw.githubusercontent.com/") && line.Contains("HTTP 200")) && signatureDiagnostics.Any(line => line.Contains("неверный TOML")) && signatureDiagnostics.Any(line => line.Contains("SHA-256")), "diagnostics distinguish HTTP success from invalid metadata and identify the Steam build");
+var signatureCache = Directory.GetFiles(Path.Combine(freshTracker, "opensteamtool"), "*.toml", SearchOption.AllDirectories);
+Check(signatureCache.Length == 3 && signatureCache.All(path => LuaLoader.UsableTrackerToml(path.Contains(Path.DirectorySeparatorChar + "ipc" + Path.DirectorySeparatorChar) ? "ipc" : "pattern", File.ReadAllText(path))), "metadata saved at loader cache paths with valid bodies");
+using var mustNotConnect = new HttpClient(new FakeHandler(_ => throw new Exception("Valid cache must work offline")));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, mustNotConnect)).Installed.Length == 0, "valid cached metadata reused without network");
+File.WriteAllText(signatureCache[0], "broken = [");
+using var validMetadata = new HttpClient(new FakeHandler(Metadata));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, validMetadata)).Installed.Length == 1, "corrupt cache repaired automatically");
+File.Delete(signatureCache[0]);
+using var slowMetadata = new HttpClient(new AsyncHandler(async (request, ct) => { await Task.Delay(TimeSpan.FromSeconds(5), ct); return Metadata(request); }));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, slowMetadata)).Installed.Length == 1, "mirror taking more than four seconds can still install metadata");
+foreach (var path in signatureCache) File.Delete(path);
+using var missingMetadata = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.NotFound)));
+var absent = await LuaLoader.EnsureSignaturesAsync(freshTracker, missingMetadata, log: SignatureLog);
+Check(absent.Unsupported.Length == 2 && absent.Unavailable.Length == 0 && absent.Installed.Length == 0, "all mirrors 404 means unsupported and creates no cache");
+Check(signatureDiagnostics.Count(line => line.Contains("HTTP 404")) == 9, "every missing mirror response logged with status");
+using var offlineMetadata = new HttpClient(new FakeHandler(_ => throw new HttpRequestException("offline")));
+var offline = await LuaLoader.EnsureSignaturesAsync(freshTracker, offlineMetadata, log: SignatureLog);
+Check(offline.Unavailable.Length == 2 && offline.Unsupported.Length == 0, "offline is explicitly unavailable rather than ready or unsupported");
+Check(signatureDiagnostics.Count(line => line.Contains("Ошибка зеркала") && line.Contains("offline")) == 9, "network failures retain their actual reason for every mirror");
+using var mixedMetadata = new HttpClient(new FakeHandler(request => request.RequestUri!.Host == "raw.githubusercontent.com" ? new(HttpStatusCode.NotFound) : throw new HttpRequestException("offline")));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, mixedMetadata)).Unavailable.Length == 2, "one 404 and unreachable mirrors do not claim unsupported build");
+using var invalidMetadata = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new StringContent(patternToml + "broken = [") }));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, invalidMetadata)).Unavailable.Length == 2 && !Directory.GetFiles(Path.Combine(freshTracker, "opensteamtool"), "*.toml", SearchOption.AllDirectories).Any(), "HTTP 200 with truncated TOML never succeeds or creates cache");
+using var oversizedMetadata = new HttpClient(new FakeHandler(_ => new(HttpStatusCode.OK) { Content = new StringContent(new string('x', 2 * 1024 * 1024 + 1)) }));
+Check((await LuaLoader.EnsureSignaturesAsync(freshTracker, oversizedMetadata)).Unavailable.Length == 2, "oversized metadata rejected");
+using (var cancelled = new CancellationTokenSource())
+{
+    cancelled.Cancel();
+    try
+    {
+        await LuaLoader.EnsureSignaturesAsync(freshTracker, validMetadata, cancelled.Token);
+        throw new Exception("Expected cancellation");
+    }
+    catch (OperationCanceledException) { Check(true, "signature installation respects caller cancellation"); }
+}
+File.Delete(Path.Combine(freshTracker, "steamui.dll"));
+var incompleteSteam = await LuaLoader.EnsureSignaturesAsync(freshTracker, validMetadata, log: SignatureLog);
+Check(incompleteSteam.Unavailable.SequenceEqual(["steamui.dll"]), "missing Steam module cannot be reported as ready");
+Check(signatureDiagnostics.Any(line => line.Contains("Файл Steam не найден") && line.Contains(Path.Combine(freshTracker, "steamui.dll"))), "missing local DLL is distinguished from download failures in the log");
+File.WriteAllText(Path.Combine(freshTracker, "steamui.dll"), "updated Steam UI");
+using var changedMetadata = new HttpClient(new FakeHandler(request =>
+{
+    File.AppendAllText(Path.Combine(freshTracker, "steamui.dll"), "changed");
+    return Metadata(request);
+}));
+try
+{
+    await LuaLoader.EnsureSignaturesAsync(freshTracker, changedMetadata);
+    throw new Exception("Expected Steam mutation failure");
+}
+catch (IOException) { Check(true, "Steam update during download cannot report ready"); }
+Check(!Directory.GetFiles(Path.Combine(freshTracker, "opensteamtool"), "*.fst-*", SearchOption.AllDirectories).Any(), "signature installation leaves no partial files");
 var loaderState = Path.Combine(testRoot, "loader-state.json");
 try
 {
@@ -390,4 +472,9 @@ Console.WriteLine($"{passed} checks passed; sandbox: {testRoot}");
 sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> reply) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(reply(request));
+}
+
+sealed class AsyncHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> reply) : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => reply(request, cancellationToken);
 }

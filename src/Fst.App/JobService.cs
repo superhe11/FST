@@ -48,15 +48,8 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
             {
                 // Without a loader Steam ignores the Lua files, so set it up before spending a Ryuu download.
                 var loaderInstalled = false;
-                if (LuaLoader.NeedsInstall(settings.SteamRoot, LoaderStateFile))
-                {
-                    jobs[id] = new("installing", L.T("Установка Lua-загрузчика BetterSteamTools…"));
-                    try
-                    {
-                        loaderInstalled = await EnsureLoaderAsync(settings);
-                    }
-                    catch (Exception e) { Log("Не удалось установить BetterSteamTools: {0}", e.Message); }
-                }
+                jobs[id] = new("installing", L.T("Установка Lua-загрузчика BetterSteamTools…"));
+                loaderInstalled = await EnsureLoaderAsync(settings);
                 // Leftover proxies without OpenSteamTool.dll do not load Lua either: stop before the Ryuu download.
                 if (LuaLoader.Broken(settings.SteamRoot, LoaderStateFile))
                     throw new InvalidOperationException(LuaLoader.MissingMessage);
@@ -101,12 +94,22 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
         await loaderGate.WaitAsync(ct);
         try
         {
-            if (!LuaLoader.NeedsInstall(settings.SteamRoot, LoaderStateFile))
-                return false;
-            var files = await LuaLoader.DownloadAndInstallAsync(settings.SteamRoot, Settings.DataRoot, LoaderStateFile, ct: ct);
+            var files = LuaLoader.NeedsInstall(settings.SteamRoot, LoaderStateFile)
+                ? await LuaLoader.DownloadAndInstallAsync(settings.SteamRoot, Settings.DataRoot, LoaderStateFile, ct: ct) : [];
             if (files.Length > 0)
                 Log("BetterSteamTools {0} установлен в папку Steam: {1}", LuaLoader.Version, string.Join(", ", files.Select(Path.GetFileName)));
-            return files.Length > 0;
+            var signatures = await LuaLoader.EnsureSignaturesAsync(settings.SteamRoot, ct: ct, log: Log);
+            UnsupportedSteamFiles = signatures.Unsupported;
+            if (signatures.Installed.Length > 0)
+                Log("Установлены файлы совместимости Steam: {0}", string.Join(", ", signatures.Installed));
+            if (signatures.Unsupported.Length > 0)
+                throw new InvalidOperationException(L.F(LuaLoader.UnsupportedMessage, string.Join(", ", signatures.Unsupported)));
+            if (signatures.Unavailable.Length > 0)
+            {
+                Log("Не удалось загрузить файлы совместимости Steam: {0}", string.Join(", ", signatures.Unavailable));
+                throw new InvalidOperationException(LuaLoader.SignaturesUnavailableMessage);
+            }
+            return files.Length > 0 || signatures.Installed.Length > 0;
         }
         finally { loaderGate.Release(); }
     }

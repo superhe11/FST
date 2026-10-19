@@ -11,6 +11,7 @@ PKGBUILD text eol=lf
 *.ps1 text eol=crlf
 *.cs text eol=lf
 *.csproj text eol=lf
+*.toml text eol=lf
 *.axaml text eol=lf
 *.js text eol=lf
 *.md text eol=lf

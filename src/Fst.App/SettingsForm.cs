@@ -32,7 +32,21 @@ internal sealed class SettingsForm : FstWindow
         steam.Controls.Add(steamDetail);
         var restart = restartButton = UiTheme.Button("Перезапустить", new Rectangle(418, 32, 184, 38));
         steam.Controls.Add(restart);
-        restart.Click += async (_, _) => { restart.Enabled = false; try { await SteamControl.RestartAsync(settings); } catch (Exception e) { steamNote = L.T(e.Message); } finally { if (!IsDisposed) { restart.Enabled = true; RefreshStatus(); } } };
+        restart.Click += async (_, _) =>
+        {
+            restart.Enabled = false;
+            var acquired = false;
+            try
+            {
+                SteamControl.Begin(SteamControl.Install);
+                acquired = true;
+                await JobService.EnsureLoaderAsync(settings);
+                await SteamControl.RestartAsync(settings);
+                steamNote = "";
+            }
+            catch (Exception e) { steamNote = L.T(e.Message); }
+            finally { if (acquired) SteamControl.End(); if (!IsDisposed) { restart.Enabled = true; RefreshStatus(); } }
+        };
         // Shown only when BetterSteamTools does not support the installed Steam, or when FST has blocked Steam updates.
         steamAction = UiTheme.Button("Откатить Steam", new Rectangle(418, 56, 184, 36), true);
         steamAction.Visible = false;

@@ -43,5 +43,19 @@ if (liveIndex >= 0)
     foreach (var file in new[] { "OpenSteamTool.dll", "steamclient64.dll", "steamui.dll" })
         File.Copy(Path.Combine(source, file), Path.Combine(clean, file));
     Check((await LuaLoader.UnsupportedSteamFilesAsync(clean)).Length == 0, "current Steam passes live BetterSteamTools tracker check without cached signatures");
+    using var offline = new HttpClient(new NoNetworkHandler());
+    var signatures = await LuaLoader.EnsureSignaturesAsync(clean, offline);
+    Check(signatures.Installed.Length == 3 && signatures.Unsupported.Length == 0 && signatures.Unavailable.Length == 0, "fresh current Steam fixture installs all bundled metadata without a single network request");
+    foreach (var path in Directory.GetFiles(Path.Combine(clean, "opensteamtool"), "*.toml", SearchOption.AllDirectories))
+        File.WriteAllText(path, "broken = [");
+    var repaired = await LuaLoader.EnsureSignaturesAsync(clean, offline);
+    Check(repaired.Installed.Length == 3 && repaired.Unavailable.Length == 0, "corrupt current Steam metadata repaired from bundle while offline");
+    Check((await LuaLoader.EnsureSignaturesAsync(clean)).Installed.Length == 0, "downloaded real metadata reused on the next run");
 }
 Console.WriteLine(passed + " Windows checks passed; sandbox: " + root);
+
+sealed class NoNetworkHandler : HttpMessageHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("No network requests are allowed during bundled metadata verification.");
+}

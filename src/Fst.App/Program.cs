@@ -25,15 +25,17 @@ internal static class Program
                 Startup.Set(!args.Contains("--no-startup"));
                 // The setup stops FST first, possibly mid-rollback: bring set-aside loader files back before checking for a loader.
                 SteamControl.RecoverLoader();
-                // The setup waits 90 s for this process and the Steam restart may take 45 s, so the loader gets 20 s; the tray retries on start.
+                // Leave time for the verified loader archive, signature mirrors and the Steam restart.
+                var loaderReady = false;
                 if (File.Exists(Path.Combine(settings.SteamRoot, "steam.exe")))
                     try
                     {
-                        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                        using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(240));
                         JobService.EnsureLoaderAsync(settings, budget.Token).GetAwaiter().GetResult();
+                        loaderReady = true;
                     }
-                    catch (Exception e) { JobService.Log("Не удалось установить BetterSteamTools: {0}", e.Message); }
-                if (args.Contains("--restart-steam") && File.Exists(Path.Combine(settings.SteamRoot, "steam.exe")))
+                    catch (Exception e) { JobService.Log("Не удалось установить BetterSteamTools: {0}", e.Message); Environment.ExitCode = 1; }
+                if (loaderReady && args.Contains("--restart-steam") && File.Exists(Path.Combine(settings.SteamRoot, "steam.exe")))
                     SteamControl.RestartAsync(settings).GetAwaiter().GetResult();
                 return;
             }
@@ -322,20 +324,34 @@ internal sealed class TrayContext : ApplicationContext
         if (File.Exists(Path.Combine(settings.SteamRoot, "steam.exe")))
             _ = Task.Run(async () =>
             {
-                SteamControl.RecoverLoader();
-                try
+                var retryRestart = false;
+                for (var attempt = 0; attempt < 3 && !cancellation.IsCancellationRequested; attempt++)
                 {
-                    if (await JobService.EnsureLoaderAsync(settings, cancellation.Token))
-                        Notify(L.T("BetterSteamTools установлен. Перезапустите Steam, чтобы добавленные игры появились в библиотеке."));
+                    var acquired = false;
+                    try
+                    {
+                        SteamControl.Begin(SteamControl.Install);
+                        acquired = true;
+                        SteamControl.RecoverLoader();
+                        if (await JobService.EnsureLoaderAsync(settings, cancellation.Token) || retryRestart)
+                            await SteamControl.RestartAsync(settings);
+                        return;
+                    }
+                    catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
+                    catch (Exception e)
+                    {
+                        retryRestart |= acquired;
+                        JobService.Log("Не удалось установить BetterSteamTools: {0}", e.Message);
+                        if (attempt == 2)
+                            Notify(L.T(e.Message));
+                    }
+                    finally { if (acquired) SteamControl.End(); }
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(15), cancellation.Token);
+                    }
+                    catch (OperationCanceledException) { return; }
                 }
-                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
-                catch (Exception e) { JobService.Log("Не удалось установить BetterSteamTools: {0}", e.Message); if (LuaLoader.Broken(settings.SteamRoot, JobService.LoaderStateFile)) JobService.Log(LuaLoader.MissingMessage); }
-                try
-                {
-                    if (await JobService.UnsupportedSteamWarningAsync(settings, cancellation.Token) is { } warning)
-                        Notify(warning + " " + L.T("Откатить Steam можно в окне FST."));
-                }
-                catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             });
         if (showWindow)
             ShowSettings();
