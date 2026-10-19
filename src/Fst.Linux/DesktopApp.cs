@@ -39,9 +39,27 @@ public sealed partial class DesktopApp : Application
         preview = desktop.Args?.Any(a => a is "--preview" or "--preview-en") == true;
         settings = Settings.Load();
         L.Language = desktop.Args?.Contains("--preview-en") == true ? "en" : settings.Language;
-        session = new RyuuSession(loadSaved: !preview);
+        // secret-tool may block on a locked keyring, so the saved key is loaded in the background below.
+        session = new RyuuSession(loadSaved: false);
         jobs = new(settings, session, Notify, () => Dispatcher.UIThread.Post(OpenConnection));
         injector = new(jobs);
+        if (!preview)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await injector.RunAsync(stopping.Token);
+                }
+                catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+                {
+                }
+                catch (Exception e)
+                {
+                    JobService.Log("Ошибка внедрения интерфейса: {0}", e.Message);
+                }
+            });
+        }
         main = CreateMain();
         lifetime.MainWindow = main;
         tray = new TrayIcon { Icon = Icon(), ToolTipText = "", IsVisible = true };
@@ -64,11 +82,34 @@ public sealed partial class DesktopApp : Application
         lifetime.Exit += (_, _) => { stopping.Cancel(); timer.Stop(); tray.Dispose(); };
         if (!preview)
         {
-            _ = Task.Run(async () => { try { await injector.RunAsync(stopping.Token); } catch (OperationCanceledException) { } catch (Exception e) { JobService.Log("Ошибка внедрения интерфейса: {0}", e.Message); } });
-            _ = Task.Run(async () => { try { await session.MaintainAsync(stopping.Token); } catch (OperationCanceledException) { } });
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await session.LoadSavedAsync(stopping.Token);
+                }
+                catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception e)
+                {
+                    JobService.Log("Ошибка загрузки сохранённого подключения Ryuu: {0}", e.Message);
+                }
+
+                Dispatcher.UIThread.Post(UpdateMain);
+
+                try
+                {
+                    await session.MaintainAsync(stopping.Token);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception e)
+                {
+                    JobService.Log("Ошибка поддержки подключения Ryuu: {0}", e.Message);
+                }
+            });
         }
-        if (!desktop.Args!.Contains("--background"))
-            ShowMain();
         JobService.Log("FST запущен. Источник: Ryuu. Подключение хранится в системном хранилище ключей.");
         if (preview)
             DispatcherTimer.RunOnce(() =>
@@ -81,6 +122,10 @@ public sealed partial class DesktopApp : Application
             lifetime.Shutdown();
         }, TimeSpan.FromSeconds(2));
         base.OnFrameworkInitializationCompleted();
+
+        // Shown only after the framework has finished initializing (PR #4 moved it here to fix the hidden main window).
+        if (!preview && desktop.Args?.Contains("--background") != true)
+            Dispatcher.UIThread.Post(ShowMain);
     }
     private static WindowIcon Icon()
     {

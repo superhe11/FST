@@ -78,4 +78,5 @@ public static class SecretStore
         if (!DeleteCredential(Target, 1, 0) && Marshal.GetLastWin32Error() != 1168)
             throw new Win32Exception(Marshal.GetLastWin32Error());
     }
+    public static Task<string> ReadAsync(CancellationToken cancellationToken = default) => Task.Run(Read, cancellationToken);
 }
