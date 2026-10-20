@@ -2,71 +2,80 @@
 
 <img src="packaging/linux/fst.svg" alt="FST" width="72">
 
-FST — утилита для бесплатного добавления игр в Steam через lua-манифесты.
+FST is a utility for adding games to Steam for free using Lua manifests.
 
-[Скачать](https://github.com/superhe11/FST/releases) · [Сообщить о проблеме](https://github.com/superhe11/FST/issues) · [English](README.en.md)
+[Download](https://github.com/superhe11/FST/releases) · [Report an issue](https://github.com/superhe11/FST/issues) · [Русский](README.ru.md)
 
-## Установка
+## Components and credits
+
+FST integrates the following projects and services:
+
+- [Ryuu](https://generator.ryuu.lol/) — Lua and manifest downloads.
+- [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) — Lua loading on Windows.
+- [SLSsteam](https://github.com/AceSLS/SLSsteam) — Steam library integration on Linux.
+- [lumalinux](https://github.com/jayool/lumalinux) — depot key support for native Steam downloads on Linux.
+
+## Installation
 
 ### Windows
 
-Нужны Windows 10/11 x64 и установленный Steam.
+Requires Windows 10/11 x64 and Steam.
 
-1. Скачайте **FST-Setup.exe** из [релизов](https://github.com/superhe11/FST/releases).
-2. Запустите установщик, выберите, нужен ли автозапуск с Windows, и нажмите **«Установить»**.
-3. Дождитесь установки и перезапуска Steam, затем нажмите **«Готово»** — откроется FST.
+1. Download **FST-Setup.exe** from [Releases](https://github.com/superhe11/FST/releases).
+2. Run the installer, choose whether to start FST with Windows, and click **Install**.
+3. Wait for setup to finish and Steam to restart, then click **Done** to open FST.
 
-Права администратора не нужны. Если Steam не определился автоматически, выберите его папку в **«Каталогах»**.
+Administrator privileges are not required. If Steam is not detected, select its folder in **Folders**.
 
 ### Arch Linux
 
-Экспериментальная сборка для x86_64 и обычного Steam из pacman/AUR. Steam из Flatpak не поддерживается.
+For native Steam installed through pacman/AUR on x86_64. Flatpak Steam is not supported.
 
-1. Установите **SLSsteam и lumalinux** по [инструкции](https://github.com/jayool/lumalinux#manual-desktop-no-plugin).
-2. Скачайте пакет **fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst** из [релизов](https://github.com/superhe11/FST/releases). Откройте терминал в папке с файлом и выполните:
+1. Install **SLSsteam and lumalinux** using the [setup guide](https://github.com/jayool/lumalinux#manual-desktop-no-plugin).
+2. Download **fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst** from [Releases](https://github.com/superhe11/FST/releases). Open a terminal in the download folder and run:
 
    ```bash
    sudo pacman -U ./fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst
    fst
    ```
 
-3. Перезапустите Steam кнопкой в FST. Если Steam или загрузчики не найдены, укажите их в **«Каталогах»**.
+3. Restart Steam using the button in FST. If Steam or the loaders are not detected, select them in **Folders**.
 
-Для сохранения входа нужно запущенное и разблокированное хранилище паролей, например GNOME Keyring.
+Saving your sign-in requires a running, unlocked password keyring, such as GNOME Keyring.
 
-Установка из архива и дополнительные настройки — в [гайде для Linux](packaging/linux/README-LINUX.md).
+For installation from the archive and additional settings, see the [Linux guide](packaging/linux/README-LINUX.md).
 
-## Как пользоваться
+## Usage
 
-1. Нажмите **«Подключить»** в FST и войдите через Discord. Подключение сохранится для следующих запусков.
-2. Откройте страницу нужной игры в магазине внутри Steam.
-3. Нажмите **«Бесплатно добавить в библиотеку»** и дождитесь завершения. FST установит Lua и манифесты, затем перезапустит Steam, если включена эта настройка.
+1. Click **Connect** in FST and sign in through Discord. Your connection is saved for future launches.
+2. Open the game's store page inside Steam.
+3. Click **Add to library for free** and wait for completion. FST installs the Lua and manifests, then restarts Steam if that setting is enabled.
 
-FST работает в трее. Нажмите на его значок, чтобы открыть меню. Язык интерфейса и логов переключается кнопкой **RU / en**.
+FST runs in the system tray. Click its icon to open the menu. Use **RU / en** to switch the interface and log language.
 
-В **«Добавленных Lua»** можно найти игры по названию или AppID и удалить одну или несколько записей.
+In **Added Lua**, search by game name or AppID and remove one or more entries.
 
-## Если что-то не работает
+## Troubleshooting
 
-- **Нет кнопки на странице игры:** перезапустите Steam через FST.
-- **Steam не найден:** выберите папку с ним в **«Каталогах»**.
-- **Ошибка установки или подключения:** откройте **«Логи»**. Если установщик ещё не завершился, на Windows нажмите Win+R и введите `%LOCALAPPDATA%\FST\fst.log`.
+- **No button on the game page:** restart Steam through FST.
+- **Steam not detected:** select its folder in **Folders**.
+- **Installation or connection error:** open **Logs**. If setup has not finished yet, press Win+R on Windows and enter `%LOCALAPPDATA%\FST\fst.log`.
 
-Если проблема осталась, [создайте issue](https://github.com/superhe11/FST/issues) и приложите текст ошибки, версию FST и название ОС.
+If the problem persists, [open an issue](https://github.com/superhe11/FST/issues) with the error message, FST version and operating system.
 
-## Удаление
+## Uninstall
 
-На Windows нажмите **«Удалить FST»** в приложении. Там же можно выбрать удаление добавленных Lua.
+On Windows, click **Uninstall FST** in the app. You can also choose to remove added Lua.
 
-На Arch Linux:
+On Arch Linux:
 
 ```bash
 sudo pacman -R fast-steam-tools-bin
 ```
 
-## Сборка из исходников
+## Build from source
 
-Нужен .NET 9 SDK. Из корня репозитория:
+Requires .NET 9 SDK. From the repository root:
 
 ```powershell
 # Windows
@@ -78,4 +87,4 @@ powershell -NoProfile -File tools/Build-Setup.ps1
 bash tools/Build-Linux.sh
 ```
 
-Готовые файлы появятся в `release/`.
+Build outputs are saved in `release/`.

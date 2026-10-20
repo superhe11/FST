@@ -14,7 +14,7 @@
 - `PKGBUILD` предназначен для локальной сборки пакета из архива этого релиза; публикации в AUR пока нет.
 - `SHA256SUMS.txt` содержит контрольные суммы всех приложенных файлов установки.
 
-Для Linux нужны отдельно установленные **SLSsteam + lumalinux** и системное хранилище Secret Service для сохранения входа. Инструкции и зависимости описаны в [README](https://github.com/superhe11/FST#установка-arch-linux).
+Для Linux нужны отдельно установленные **SLSsteam + lumalinux** и системное хранилище Secret Service для сохранения входа. Инструкции и зависимости описаны в [README](https://github.com/superhe11/FST/blob/main/README.ru.md#arch-linux).
 
 ### Возможности
 

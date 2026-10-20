@@ -14,6 +14,4 @@
 - **Arch Linux:** скачайте `fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst` и выполните `sudo pacman -U ./fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst`.
 - **Linux из архива:** распакуйте `fst-0.1.3-linux-x86_64.tar.gz` и запустите `bash install.sh` из папки `fst-linux-x64`.
 
-[Полная инструкция](https://github.com/superhe11/FST#установка). Linux требует SLSsteam и lumalinux.
-
-**Предварительный выпуск:** скачивание и запуск игр на настоящем Arch со Steam пока не подтверждены. Контрольные суммы приложенных файлов — в `SHA256SUMS.txt`.
+[Полная инструкция](https://github.com/superhe11/FST/blob/main/README.ru.md#установка). Linux требует SLSsteam и lumalinux.

@@ -24,7 +24,7 @@
 - **Локальная сборка Arch-пакета:** поместите `PKGBUILD` и Linux-архив в одну папку, затем запустите `makepkg -si`. Пакет в AUR не опубликован.
 - `SHA256SUMS.txt` содержит контрольные суммы всех приложенных файлов. Проверка Linux: `sha256sum -c SHA256SUMS-linux.txt`.
 
-Linux требует отдельно установленных **SLSsteam + lumalinux** и работающего хранилища Secret Service. [Установка и зависимости](https://github.com/superhe11/FST#установка-arch-linux).
+Linux требует отдельно установленных **SLSsteam + lumalinux** и работающего хранилища Secret Service. [Установка и зависимости](https://github.com/superhe11/FST/blob/main/README.ru.md#arch-linux).
 
 ### Проверка и ограничения
 

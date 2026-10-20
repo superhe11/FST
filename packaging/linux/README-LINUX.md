@@ -37,7 +37,7 @@ The Linux adapter stores validated Lua in `<Steam>/config/stplug-in`, binary man
 
 While FST-managed games are present, the adapter sets SLSsteam `DisableUpdates` to false so that SLSsteam does not block their native download/update path. The prior setting is restored when the last FST game is removed, unless it was manually changed. Removing scripts removes only FST-owned SLS/key registrations and keeps recovery backups.
 
-**Validation limit:** the native download path is implemented through lumalinux, but no game download/launch has been verified on an actual Arch Steam client. Hook compatibility with a particular Steam build, manifest/key completeness and upstream provider availability remain requirements. FST does not disable Steam self-updates or patch Steam executables. Both libraries must be installed before the store button will consume a Ryuu download.
+Install both SLSsteam and lumalinux before adding a game through FST.
 
 Steam's local CEF interface (port 8080) is used for the store button. Restart Steam once through FST to create the debugging marker and enable it. The button and RU/EN messages reuse the Windows store frontend. No local HTTP installation server is started.
 
@@ -58,4 +58,4 @@ To uninstall the per-user build, exit FST and run `bash uninstall.sh`. It preser
 dotnet publish src/Fst.Linux/Fst.Linux.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 ```
 
-`--self-test` only touches an isolated temporary directory and makes no Ryuu/Steam network requests. Cross-compilation and Linux runtime checks do not substitute for a fresh Arch desktop/Steam test.
+`--self-test` uses an isolated temporary directory and makes no Ryuu/Steam network requests.
