@@ -1,0 +1,5 @@
+# Ubuntu 26.04 is a GitHub-hosted runner. Older actionlint releases do not
+# recognize the label yet; this extends their allowlist without changing CI.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
