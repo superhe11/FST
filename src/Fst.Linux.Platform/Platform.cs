@@ -14,6 +14,7 @@ public sealed class Settings
     public string SteamRoot { get; set; } = "";
     public string SlsLibrary { get; set; } = "";
     public string LumaLibrary { get; set; } = "";
+    public string LumaTool { get; set; } = "";
     public string Language { get; set; } = "ru";
     public bool RestartAfterInstall { get; set; } = true;
     public bool AutoUpdate { get; set; } = true;
@@ -61,7 +62,6 @@ public sealed class Settings
     }
     public string[] ActiveLuaDirectories() => [];
     public string[] LuaDirectories() => [LuaDirectory];
-    public InstallPlan Plan() => new(SteamRoot, LuaDirectory, DepotDirectory, AutoUpdate, false);
 }
 
 public static class ProcessRunner

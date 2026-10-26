@@ -13,7 +13,7 @@ FST integrates the following projects and services:
 - [Ryuu](https://generator.ryuu.lol/) — Lua and manifest downloads.
 - [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) — Lua loading on Windows.
 - [SLSsteam](https://github.com/AceSLS/SLSsteam) — Steam library integration on Linux.
-- [lumalinux](https://github.com/jayool/lumalinux) — depot key support for native Steam downloads on Linux.
+- [lumalinux](https://github.com/jayool/lumalinux) — game deployment and native Steam downloads on Linux, through its installed `steamidra_lite.py` tool (Python 3).
 
 ## Installation
 

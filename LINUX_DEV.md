@@ -19,13 +19,13 @@ From this checkout:
 
 Steam's first launch downloads its client. Sign in using a dedicated test account. Use Firefox **inside the sandbox** for browser login flows; callback localhost belongs to the container. Right-click the desktop for Openbox's menu; a terminal opens at startup. There is no host keyring integration; initialize/unlock the sandbox keyring if you want FST to remember sign-in.
 
-FST detects the image's SLSsteam and lumalinux libraries. The `steam` command enables CEF debugging; use FST's Steam restart button to launch Steam with the loaders. `check-cef` is expected to fail until the Steam client has finished its initial updates and started its web helper. The debugging port 8080 is never published to the host.
+FST detects the image's SLSsteam and lumalinux libraries. The image also installs `steamidra_lite.py` under `/usr/lib/lumalinux/tools/`, from the same release tag as `liblumalinux.so`; FST discovers it next to that library. Recreate older sandbox images that only contain the shared library before testing game deployment. The `steam` command enables CEF debugging; use FST's Steam restart button to launch Steam with the loaders. `check-cef` is expected to fail until the Steam client has finished its initial updates and started its web helper. The debugging port 8080 is never published to the host.
 
 ## Everyday commands
 
 ```bash
 ./tools/fst-sandbox.sh build          # sync current sources, compile and package
-./tools/fst-sandbox.sh test           # Linux self-tests
+./tools/fst-sandbox.sh test           # core tests, Linux fixture tests and installed lumalinux CLI tests
 ./tools/fst-sandbox.sh app            # show built FST in private desktop
 ./tools/fst-sandbox.sh steam          # launch sandbox Steam
 ./tools/fst-sandbox.sh check-cef      # query sandbox Steam, not host Steam
@@ -58,7 +58,7 @@ See [Podman's isolation and networking options](https://docs.podman.io/en/latest
 
 `.github/workflows/linux-sandbox.yml` runs on pushes to main and pull requests using [Ubuntu 26.04](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2604-Readme.md). It installs container tools on the disposable GitHub runner, then uses the same launcher as local development to create a fresh HOME volume. No Steam or Ryuu account credentials are needed.
 
-The default run checks shell scripts with ShellCheck, effective mount/capability/namespace isolation, a live host-loopback canary, compilation, all Linux self-tests, the Arch package, GUI rendering, and profile persistence after stop/start. Logs and the rendered FST PNG are uploaded as a seven-day artifact, including diagnostics on failure. The disposable container, image tag and HOME volume are cleaned up on script exit. The runner VM is discarded if the job is forcibly cancelled.
+The default run checks shell scripts with ShellCheck, effective mount/capability/namespace isolation, a live host-loopback canary, compilation, core regression tests, Linux self-tests with both the offline fixture and the image's installed lumalinux CLI, the Arch package, GUI rendering, and profile persistence after stop/start. The upstream CLI tests deploy synthetic game data into temporary directories and verify VDF key injection and ACF recovery in a secondary library without Steam/Ryuu credentials. A missing CLI fails the sandbox test instead of being hidden by the fixture. Logs and the rendered FST PNG are uploaded as a seven-day artifact, including diagnostics on failure. The disposable container, image tag and HOME volume are cleaned up on script exit. The runner VM is discarded if the job is forcibly cancelled.
 
 Reproduce it locally:
 

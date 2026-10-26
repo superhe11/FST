@@ -222,7 +222,7 @@ public sealed partial class DesktopApp : Application
     {
         account.Text = session.Connected ? (string.IsNullOrWhiteSpace(session.Username) ? L.T("Ryuu подключён") : session.Username) : L.T("Подключить Ryuu");
         steam.Text = L.T(injector.Connected ? "Steam подключён" : "Ожидание Steam");
-        backend.Text = !File.Exists(settings.SlsLibrary) ? L.T("Установите SLSsteam и выберите SLSsteam.so в каталогах.") : !File.Exists(settings.LumaLibrary) ? L.T("Установите lumalinux и выберите liblumalinux.so в каталогах.") : "";
+        backend.Text = !File.Exists(settings.SlsLibrary) ? L.T("Установите SLSsteam и выберите SLSsteam.so в каталогах.") : !File.Exists(settings.LumaLibrary) ? L.T("Установите lumalinux и выберите liblumalinux.so в каталогах.") : !File.Exists(LumaBackend.FindTool(settings)) ? L.T("Не найден steamidra_lite.py. Обновите lumalinux или выберите инструмент в каталогах.") : "";
         backend.IsVisible = !string.IsNullOrEmpty(backend.Text);
     }
     private void ShowMain()
@@ -339,15 +339,17 @@ public sealed partial class DesktopApp : Application
     }
     private void OpenPaths()
     {
-        var window = Window(500);
+        var window = Window(570);
         var root = new TextBox { Text = settings.SteamRoot };
         var sls = new TextBox { Text = settings.SlsLibrary };
         var luma = new TextBox { Text = settings.LumaLibrary };
+        var tool = new TextBox { Text = LumaBackend.FindTool(settings) };
+        var toolFile = Button("Выбрать файл", () => RunUi(async () => { var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = false, Title = "steamidra_lite.py" }); if (result.Count > 0) tool.Text = result[0].Path.LocalPath; }));
         var status = Text("", 11, true);
         var browse = Button("Выбрать папку", () => RunUi(async () => { var result = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { AllowMultiple = false, Title = L.T("STEAM") }); if (result.Count > 0) root.Text = result[0].Path.LocalPath; }));
         var library = Button("Выбрать файл", () => RunUi(async () => { var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = false, Title = "SLSsteam.so" }); if (result.Count > 0) sls.Text = result[0].Path.LocalPath; }));
         var lumaFile = Button("Выбрать файл", () => RunUi(async () => { var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = false, Title = "liblumalinux.so" }); if (result.Count > 0) luma.Text = result[0].Path.LocalPath; }));
-        window.Content = Frame(window, Stack(Text("STEAM", 11, true), Row(root, browse), Text("SLSsteam.so", 11, true), Row(sls, library), Text("liblumalinux.so", 11, true), Row(luma, lumaFile), status, Button("Сохранить", () =>
+        window.Content = Frame(window, Stack(Text("STEAM", 11, true), Row(root, browse), Text("SLSsteam.so", 11, true), Row(sls, library), Text("liblumalinux.so", 11, true), Row(luma, lumaFile), Text("steamidra_lite.py", 11, true), Row(tool, toolFile), status, Button("Сохранить", () =>
         {
             try
             {
@@ -361,6 +363,10 @@ public sealed partial class DesktopApp : Application
                 var lumaPath = Path.GetFullPath(luma.Text ?? "");
                 if (!File.Exists(lumaPath) || Path.GetFileName(lumaPath) != "liblumalinux.so")
                     throw new IOException(L.T("Выберите liblumalinux.so."));
+                var toolPath = Path.GetFullPath(tool.Text ?? "");
+                if (!File.Exists(toolPath))
+                    throw new IOException(L.T("Не найден steamidra_lite.py. Обновите lumalinux или выберите инструмент в каталогах."));
+                settings.LumaTool = toolPath;
                 settings.SteamRoot = canonical;
                 settings.SlsLibrary = so;
                 settings.LumaLibrary = lumaPath;

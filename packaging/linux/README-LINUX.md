@@ -7,7 +7,7 @@ Native desktop build, .NET runtime included. No Wine required. Steam must be the
 Install desktop dependencies on Arch:
 
 ```sh
-sudo pacman -S --needed libx11 libice libsm fontconfig libsecret xdg-utils ttf-dejavu icu openssl zlib
+sudo pacman -S --needed python libx11 libice libsm fontconfig libsecret xdg-utils ttf-dejavu icu openssl zlib
 ```
 
 A Secret Service provider must be running and unlocked to save Ryuu sign-in. For example, GNOME Keyring or a desktop wallet that implements Secret Service. FST never falls back to storing the key in a text file.
@@ -33,9 +33,11 @@ FST detects `~/.steam/steam` or `~/.local/share/Steam`, resolves the standard St
 
 The Ryuu flow restores the saved system-keyring connection, then tries Ryuu's server-side session discovery, then opens Discord sign-in when needed. Logout from a browser does not necessarily remove the server session returned by Ryuu.
 
-The Linux adapter stores validated Lua in `<Steam>/config/stplug-in`, binary manifests in `<Steam>/depotcache`, registers the main AppIDs in SLSsteam `AdditionalApps`, and maps active manifest pins into `ManifestIds`. It writes depot keys into a marked FST section of `~/.config/lumalinux/keys.txt`, with a presence entry for the main AppID and the parent AppID/manifest GID for each keyed depot. Existing manual key entries take precedence. It backs up modified files and rolls back Lua/manifests/SLS config/key data if a commit fails. Lua is parsed as data and never executed by FST.
+The Linux adapter validates the archive and declarative Lua, then delegates game deployment to lumalinux's installed `tools/steamidra_lite.py` via Python 3. The tool handles Lua, manifests, depot keys, SLSsteam registration/pins, Steam `config.vdf` keys and existing `.acf` error recovery, including secondary libraries. FST runs it against isolated copies and commits the results with recovery backups only after success. Lua is parsed as data and never executed.
 
-While FST-managed games are present, the adapter sets SLSsteam `DisableUpdates` to false so that SLSsteam does not block their native download/update path. The prior setting is restored when the last FST game is removed, unless it was manually changed. Removing scripts removes only FST-owned SLS/key registrations and keeps recovery backups.
+The tool is detected next to `liblumalinux.so`, normally at `~/.local/share/lumalinux/tools/steamidra_lite.py`. A custom path can be selected in Folders. If it is missing, update lumalinux using its upstream installer. FST uses the installed copy so it stays paired with the installed library; it does not download or bundle the tool. Auto-update uses the tool's default mode; disabling auto-update passes `--pin`. Explicit manual keys and pins take precedence. Only the requested game's Lua is deployed from a multi-Lua archive.
+
+While FST-managed games are present, the adapter sets SLSsteam `DisableUpdates` to false so that SLSsteam does not block their native download/update path. The prior setting is restored when the last FST game is removed, unless it was manually changed. Removing scripts restores FST-owned SLS/key registrations where they have not subsequently been changed by the user, and keeps recovery backups. Legacy FST key blocks and ownership metadata are imported automatically. Cached manifests and Steam’s `config.vdf` depot keys remain available to Steam after removal.
 
 Install both SLSsteam and lumalinux before adding a game through FST.
 
@@ -58,4 +60,4 @@ To uninstall the per-user build, exit FST and run `bash uninstall.sh`. It preser
 dotnet publish src/Fst.Linux/Fst.Linux.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 ```
 
-`--self-test` uses an isolated temporary directory and makes no Ryuu/Steam network requests.
+`--self-test` uses an isolated temporary directory and an offline CLI fixture, and makes no Ryuu/Steam network requests. To also exercise an installed upstream tool against temporary Steam data, run `FST_TEST_LUMA_TOOL=/path/to/steamidra_lite.py ./app/fst --self-test`.

@@ -13,7 +13,7 @@ FST использует следующие проекты и сервисы:
 - [Ryuu](https://generator.ryuu.lol/) — скачивание Lua и манифестов.
 - [BetterSteamTools](https://github.com/madoiscool/BetterSteamTools) — загрузка Lua на Windows.
 - [SLSsteam](https://github.com/AceSLS/SLSsteam) — интеграция с библиотекой Steam на Linux.
-- [lumalinux](https://github.com/jayool/lumalinux) — поддержка ключей для скачивания игр через нативный Steam на Linux.
+- [lumalinux](https://github.com/jayool/lumalinux) — добавление игр и скачивание через нативный Steam на Linux с помощью установленного `steamidra_lite.py` (Python 3).
 
 ## Установка
 
