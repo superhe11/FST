@@ -1,0 +1,65 @@
+name: Linux sandbox
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      steam_smoke:
+        description: Download a fresh Steam client and verify CEF (no account login)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sandbox:
+    name: Rootless sandbox integration
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    env:
+      STEAM_SMOKE: ${{ github.event_name == 'workflow_dispatch' && inputs.steam_smoke }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install container and validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman passt uidmap python3 shellcheck
+          podman version
+          pasta --version
+          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+
+      - name: Check sandbox shell scripts
+        run: |
+          shellcheck tools/fst-sandbox.sh tools/fst-devbox.sh tools/Test-Linux-Sandbox.sh tools/sandbox/*.sh
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          ast.parse(Path('tools/sandbox/verify.py').read_text())
+          PY
+
+      - name: Fresh profile, isolation, build, tests, GUI and restart
+        env:
+          FST_SANDBOX_RESULTS: ${{ runner.temp }}/fst-sandbox-results
+        shell: bash
+        run: |
+          args=()
+          if [[ "$STEAM_SMOKE" == true ]]; then args+=(--steam); fi
+          bash tools/Test-Linux-Sandbox.sh "${args[@]}"
+
+      - name: Upload diagnostics and rendered FST
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: fst-sandbox-diagnostics
+          path: ${{ runner.temp }}/fst-sandbox-results/
+          if-no-files-found: warn
+          retention-days: 7
