@@ -15,8 +15,10 @@ ARG SLS_VERSION=20261014151919
 ARG LUMA_VERSION=v0.22.4
 RUN curl -fL --retry 3 "https://github.com/AceSLS/SLSsteam/releases/download/${SLS_VERSION}/SLSsteam-Arch-release-x86_64.pkg.tar.zst" -o /tmp/sls.pkg.tar.zst && \
     pacman -U --noconfirm /tmp/sls.pkg.tar.zst && rm /tmp/sls.pkg.tar.zst && \
-    install -d /usr/lib/lumalinux && \
+    install -d /usr/lib/lumalinux/tools && \
     curl -fL --retry 3 "https://github.com/jayool/lumalinux/releases/download/${LUMA_VERSION}/liblumalinux.so" -o /usr/lib/lumalinux/liblumalinux.so && \
+    curl -fL --retry 3 "https://raw.githubusercontent.com/jayool/lumalinux/${LUMA_VERSION}/tools/steamidra_lite.py" -o /usr/lib/lumalinux/tools/steamidra_lite.py && \
+    python3 /usr/lib/lumalinux/tools/steamidra_lite.py --help > /dev/null && \
     useradd -m -u 1000 -s /bin/bash dev && \
     install -d -o dev -g dev /home/dev /run/user/1000 && \
     chmod 700 /run/user/1000

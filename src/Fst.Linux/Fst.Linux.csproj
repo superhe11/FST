@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net9.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>fst</AssemblyName><AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault></PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../tests/Fixtures/lumalinux-tool.py" LogicalName="lumalinux-tool.py" />
     <ProjectReference Include="../Fst.Linux.Platform/Fst.Linux.Platform.csproj" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />

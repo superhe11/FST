@@ -56,6 +56,9 @@ jobs:
       - name: Run offline regression tests
         run: dotnet run --project ${{ env.TEST_PROJECT }} --configuration Release --no-build
 
+      - name: Linux backend transaction and lifecycle checks
+        run: dotnet run --project tests/Fst.Linux.Platform.Tests/Fst.Linux.Platform.Tests.csproj -c Release
+
       - name: Windows loader integration checks
         if: matrix.os == 'windows-latest'
         run: dotnet run --project tests/Fst.Windows.Tests/Fst.Windows.Tests.csproj -c Release
