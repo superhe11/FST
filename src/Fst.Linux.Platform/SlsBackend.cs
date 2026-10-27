@@ -177,6 +177,7 @@ public static class SlsBackend
     public static InstallResult Install(string archive, string appId, Settings settings)
     {
         RequireReady(settings);
+        SteamControl.RequireStopped();
         using var deployment = new LumaBackend.Deployment();
         deployment.Prepare(archive, appId, settings);
         var owned = LoadOwned(settings, deployment.Keys, deployment.Receipt);
@@ -184,6 +185,8 @@ public static class SlsBackend
         var beforePins = Pins(before);
         var beforeKeysText = ReadKeys(deployment.Keys);
         var beforeKeys = KeyLines(beforeKeysText);
+        deployment.ApplyKeyOverrides(beforeKeys.Where(p => !owned.Keys!.TryGetValue(p.Key, out var key) || key.Value != p.Value)
+            .ToDictionary(p => p.Key, p => p.Value!), appId);
         if (File.Exists(deployment.Config))
             File.WriteAllBytes(deployment.Config, Yaml(before));
         deployment.Run(appId, settings);
@@ -223,6 +226,7 @@ public static class SlsBackend
             Games = (owned.Games ?? owned.Apps).Append(appId).Distinct().ToArray()
         });
         deployment.EnsureUnchanged(changes.Keys);
+        SteamControl.RequireStopped();
         var backup = Commit(changes, settings.LumaKeys);
         return new(appId, 1, deployment.Result.ManifestFiles, backup);
     }
@@ -264,8 +268,28 @@ public static class SlsBackend
         Commit(changes, settings.LumaKeys);
     }
 
-    private static string Commit(Dictionary<string, byte[]?> changes, string keysPath)
+    public static Task<InstallResult> InstallAsync(string archive, string appId, Settings settings, Action<string> stateChanged) =>
+        InstallStoppedAsync(() => SteamControl.StopAsync(settings), () => Install(archive, appId, settings),
+            () => SteamControl.Start(settings), settings.RestartAfterInstall, stateChanged);
+
+    internal static async Task<InstallResult> InstallStoppedAsync(Func<Task> stop, Func<InstallResult> install,
+        Action start, bool restart, Action<string> stateChanged)
     {
+        stateChanged("stopping");
+        await stop();
+        stateChanged("installing");
+        var result = install();
+        if (restart)
+        {
+            stateChanged("restarting");
+            start();
+        }
+        return result;
+    }
+
+    internal static string Commit(Dictionary<string, byte[]?> changes, string keysPath, Action<string, byte[]?>? writer = null)
+    {
+        writer ??= Write;
         foreach (var path in changes.Keys)
             RejectLinks(path);
         var backup = Path.Combine(Settings.DataRoot, "backups", "linux-" + Guid.NewGuid().ToString("N"));
@@ -283,16 +307,58 @@ public static class SlsBackend
             originals[path] = copy;
         }
         File.WriteAllText(Path.Combine(backup, "restore.json"), JsonSerializer.Serialize(originals.Select(p => new { target = p.Key, backup = p.Value })));
+        var committed = new List<string>();
         try
         {
             foreach (var pair in changes)
-                Write(pair.Key, pair.Value);
+            {
+                writer(pair.Key, pair.Value);
+                committed.Add(pair.Key);
+            }
             if (OperatingSystem.IsLinux() && File.Exists(keysPath))
                 File.SetUnixFileMode(keysPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             if (OperatingSystem.IsLinux())
                 File.SetUnixFileMode(Ownership, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
-        catch { foreach (var pair in originals.Reverse()) Write(pair.Key, pair.Value == null ? null : File.ReadAllBytes(pair.Value)); throw; }
+        catch (Exception failure)
+        {
+            var errors = new List<Exception>();
+            var diagnostics = new List<object>();
+            foreach (var path in committed.AsEnumerable().Reverse())
+                try
+                {
+                    writer(path, originals[path] == null ? null : File.ReadAllBytes(originals[path]!));
+                }
+                catch (Exception restoreError)
+                {
+                    errors.Add(new IOException("Could not restore: " + path, restoreError));
+                    diagnostics.Add(new
+                    {
+                        target = path,
+                        error = restoreError.GetType().FullName,
+                        message = restoreError.Message
+                    });
+                }
+            if (errors.Count > 0)
+            {
+                try
+                {
+                    File.WriteAllText(Path.Combine(backup, "rollback-errors.json"), JsonSerializer.Serialize(new
+                    {
+                        failure = new
+                        {
+                            error = failure.GetType().FullName,
+                            message = failure.Message
+                        },
+                        errors = diagnostics
+                    }));
+                }
+                catch (Exception diagnosticError) { errors.Add(diagnosticError); }
+                throw new IOException(L.F("Откат завершён не полностью. Резервная копия и диагностика: {0}", backup),
+                    new AggregateException(new[] { failure }.Concat(errors)));
+            }
+            throw;
+        }
         return backup;
     }
     internal static void RejectLinks(string path)

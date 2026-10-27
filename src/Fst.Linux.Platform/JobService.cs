@@ -57,15 +57,13 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
             {
                 using var client = new RyuuClient();
                 await client.DownloadAsync(id, key, archive);
-                jobs[jobId] = new("installing", L.T("Установка Lua и манифестов…"));
-                var result = SlsBackend.Install(archive, id, settings);
-                Log("Установлена игра {0}: Lua — {1}, манифестов — {2}. Копия: {3}", id, result.LuaFiles, result.ManifestFiles, result.BackupDirectory);
-                if (settings.RestartAfterInstall)
+                var result = await SlsBackend.InstallAsync(archive, id, settings, state => jobs[jobId] = new(state, L.T(state switch
                 {
-                    jobs[jobId] = new("restarting", L.T("Установлено. Steam перезапускается…"));
-                    await Task.Delay(1800);
-                    await SteamControl.RestartAsync(settings);
-                }
+                    "stopping" => "Завершение Steam перед установкой…",
+                    "restarting" => "Установлено. Steam перезапускается…",
+                    _ => "Установка Lua и манифестов…"
+                })));
+                Log("Установлена игра {0}: Lua — {1}, манифестов — {2}. Копия: {3}", id, result.LuaFiles, result.ManifestFiles, result.BackupDirectory);
                 jobs[jobId] = new("complete", L.T("Добавлено в библиотеку"));
                 notify(L.F("Игра {0} добавлена.", id));
             }

@@ -203,11 +203,12 @@ public sealed partial class DesktopApp : Application
         backend = Text("", 11, true);
         var first = Card(Row(account, Button("Подключение", OpenConnection, true)));
         first.MinHeight = 96;
-        var second = Card(Row(steam, Button("Перезапустить", () => RunUi(() => SteamControl.RestartAsync(settings)))));
+        var second = Card(Row(steam, Button("Перезапустить", () => RunUi(async () => { using var lease = jobs.BeginMaintenance(); await SteamControl.RestartAsync(settings); }))));
         second.MinHeight = 96;
         var startup = new CheckBox { Content = L.T("Запускать при входе в систему"), IsChecked = Startup.Enabled };
         startup.IsCheckedChanged += (_, _) => RunUi(() => { Startup.Set(startup.IsChecked == true); return Task.CompletedTask; });
-        var restart = new CheckBox { Content = L.T("Перезапускать Steam после добавления игры"), IsChecked = settings.RestartAfterInstall };
+        var restart = new CheckBox { Content = L.T("Запускать Steam после добавления игры"), IsChecked = settings.RestartAfterInstall };
+        ToolTip.SetTip(restart, L.T("Перед добавлением игры Steam будет закрыт."));
         restart.IsCheckedChanged += (_, _) => { settings.RestartAfterInstall = restart.IsChecked == true; settings.Save(); };
         var content = Stack(first, second, backend, Card(Stack(startup, restart)), Row(Button("Каталоги", OpenPaths), Button("Логи", OpenLogs), "*,*"), Row(Button("Добавленные Lua", OpenLibrary), Button("Удалить FST", OpenUninstall), "*,*"));
         window.Content = Frame(window, content);

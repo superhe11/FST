@@ -177,19 +177,40 @@ public static class SteamControl
     }
     public static async Task RestartAsync(Settings settings)
     {
-        EnsureDebugMarker(settings);
+        await StopAsync(settings);
+        Start(settings);
+    }
+    public static async Task StopAsync(Settings settings)
+    {
+        if (!SteamRunning())
+            return;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         using (var shutdown = Process.Start(ProcessRunner.StartInfo("steam", "-shutdown")))
         {
-            if (shutdown != null)
-                await shutdown.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(10)).Token);
+            if (shutdown == null)
+                throw new IOException("Could not request Steam shutdown.");
+            try
+            {
+                await shutdown.WaitForExitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) { throw new IOException(L.T("Не удалось завершить Steam. Закройте его и повторите установку.")); }
         }
         var until = DateTime.UtcNow.AddSeconds(45);
         while (SteamRunning())
         {
             if (DateTime.UtcNow >= until)
-                throw new IOException(L.T("Steam не завершился за 45 секунд. Файлы установлены; перезапустите Steam вручную."));
+                throw new IOException(L.T("Steam не завершился за 45 секунд. Закройте Steam и повторите."));
             await Task.Delay(500);
         }
+    }
+    internal static void RequireStopped()
+    {
+        if (OperatingSystem.IsLinux() && SteamRunning())
+            throw new IOException(L.T("Перед установкой завершите Steam."));
+    }
+    public static void Start(Settings settings)
+    {
+        EnsureDebugMarker(settings);
         var wrapper = File.Exists(settings.SteamLauncher);
         var start = ProcessRunner.StartInfo(wrapper ? settings.SteamLauncher : "steam", "-cef-enable-debugging");
         if (!wrapper && File.Exists(settings.SlsLibrary))
@@ -211,8 +232,10 @@ public static class SteamControl
     }
     private static bool SteamRunning()
     {
+        if (!OperatingSystem.IsLinux())
+            return false;
         var ownUid = File.ReadLines("/proc/self/status").First(l => l.StartsWith("Uid:")).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[1];
-        foreach (var process in Process.GetProcessesByName("steam"))
+        foreach (var process in Process.GetProcessesByName("steam").Concat(Process.GetProcessesByName("steamwebhelper")))
             using (process)
             {
                 try
@@ -220,7 +243,7 @@ public static class SteamControl
                     if (File.ReadLines("/proc/" + process.Id + "/status").First(l => l.StartsWith("Uid:")).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[1] == ownUid)
                         return true;
                 }
-                catch { }
+                catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException) { }
             }
         return false;
     }

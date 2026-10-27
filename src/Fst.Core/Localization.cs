@@ -18,6 +18,12 @@ public static class Localization
     public static event Action? Changed;
     private static readonly Dictionary<string, string> English = new()
     {
+        ["Откат завершён не полностью. Резервная копия и диагностика: {0}"] = "Rollback was incomplete. Backup and diagnostics: {0}",
+        ["Не удалось завершить Steam. Закройте его и повторите установку."] = "Steam could not be stopped. Close it and retry installation.",
+        ["Перед установкой завершите Steam."] = "Close Steam before installing.",
+        ["Завершение Steam перед установкой…"] = "Closing Steam before installation…",
+        ["Запускать Steam после добавления игры"] = "Start Steam after adding a game",
+        ["Перед добавлением игры Steam будет закрыт."] = "Steam will be closed before adding a game.",
         ["Установите libsecret и запустите хранилище Secret Service."] = "Install libsecret and start a Secret Service keyring.",
         ["Установите lumalinux и выберите liblumalinux.so в каталогах."] = "Install lumalinux and select liblumalinux.so in Folders.",
         ["Не найден steamidra_lite.py. Обновите lumalinux или выберите инструмент в каталогах."] = "steamidra_lite.py was not found. Update lumalinux or select the tool in Folders.",

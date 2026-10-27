@@ -127,6 +127,27 @@ public static class LumaBackend
         private void CopyAcf(string original, string staged, string appId) =>
             Copy(Path.Combine(original, "steamapps", "appmanifest_" + appId + ".acf"), Path.Combine(staged, "steamapps", "appmanifest_" + appId + ".acf"));
 
+        public void ApplyKeyOverrides(Dictionary<string, string> manual, string appId)
+        {
+            var luaPath = Path.Combine(work, "validated/lua", appId + ".lua");
+            var used = new Dictionary<string, string>(StringComparer.Ordinal);
+            var lua = Regex.Replace(File.ReadAllText(luaPath), @"(?m)^([ \t]*addappid\s*\(\s*([0-9]+)\s*,\s*[0-9]+\s*,\s*"")([a-fA-F0-9]{64})("")", m =>
+            {
+                if (!manual.TryGetValue(m.Groups[2].Value, out var line))
+                    return m.Value;
+                var fields = line.Split(';');
+                if (fields.Length is not (2 or 5) || !Regex.IsMatch(fields[^1], @"\A[a-fA-F0-9]{64}\z"))
+                    return m.Value;
+                used[m.Groups[2].Value] = fields[^1];
+                return m.Groups[1].Value + fields[^1] + m.Groups[4].Value;
+            });
+            File.WriteAllText(luaPath, lua);
+            used.Remove(appId); // The main AppID is never a VDF depot key.
+            var vdf = Path.Combine(SteamRoot, "config/config.vdf");
+            if (used.Count > 0 && File.Exists(vdf))
+                File.WriteAllText(vdf, VdfDepotKeys.ApplyOverrides(File.ReadAllText(vdf), used));
+        }
+
         public void Run(string appId, Settings settings)
         {
             var args = new List<string> { FindTool(settings), Path.Combine(work, "validated/lua", appId + ".lua"),

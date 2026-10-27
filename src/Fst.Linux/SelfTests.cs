@@ -83,6 +83,7 @@ internal static class SelfTests
             var vdf = Path.Combine(settings.SteamRoot, "config/config.vdf");
             Directory.CreateDirectory(Path.GetDirectoryName(vdf)!);
             File.WriteAllText(vdf, "\"InstallConfigStore\"\n{\n\"Software\"\n{\n\"Valve\"\n{\n\"Steam\"\n{\n\"depots\"\n{\n}\n}\n}\n}\n}\n");
+            var initialVdf = File.ReadAllText(vdf);
             var secondary = Path.Combine(sandbox, "SD card library");
             var acf = Path.Combine(secondary, "steamapps/appmanifest_440.acf");
             Directory.CreateDirectory(Path.GetDirectoryName(acf)!);
@@ -198,6 +199,9 @@ internal static class SelfTests
             if (OperatingSystem.IsLinux() && Environment.UserName != "root")
             {
                 Directory.CreateDirectory(settings.LuaDirectory);
+                var previousLua = Path.Combine(settings.LuaDirectory, "440.lua");
+                File.WriteAllText(previousLua, "addappid(440)\n-- original existing Lua\n");
+                var previousLuaBytes = File.ReadAllBytes(previousLua);
                 var mode = File.GetUnixFileMode(settings.LuaDirectory);
                 File.SetUnixFileMode(settings.LuaDirectory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
                 try
@@ -209,8 +213,9 @@ internal static class SelfTests
                     }
                     catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
                     Check(File.ReadAllText(settings.SlsConfig) == configBefore && File.ReadAllText(vdf) == vdfBefore && File.ReadAllBytes(settings.LumaKeys).SequenceEqual(manualKeys), "later commit failure restores prior config, VDF and keys");
+                    Check(File.ReadAllBytes(previousLua).SequenceEqual(previousLuaBytes), "failed replacement leaves the existing Lua unchanged");
                 }
-                finally { File.SetUnixFileMode(settings.LuaDirectory, mode); }
+                finally { File.SetUnixFileMode(settings.LuaDirectory, mode); File.Delete(previousLua); }
             }
             settings.AutoUpdate = true;
             File.WriteAllBytes(Path.Combine(settings.DepotDirectory, "441_999.manifest"), binary);
@@ -220,6 +225,17 @@ internal static class SelfTests
             Check(Regex.IsMatch(File.ReadAllText(Path.Combine(settings.LuaDirectory, "440.lua")), @"(?im)^\s*--\s*setmanifestid"), "upstream comments version pins for auto-update");
             File.WriteAllText(settings.LumaKeys, File.ReadAllText(settings.LumaKeys).Replace("441;440;0;0;" + new string('a', 64), "441;" + new string('d', 64)));
             SlsBackend.Install(archive, "440", settings);
+            if (Environment.GetEnvironmentVariable("FST_TEST_LUMA_TOOL") != null)
+            {
+                Check(File.ReadAllText(vdf).Contains(new string('d', 64)) && !File.ReadAllText(vdf).Contains(new string('a', 64)), "manual key replaces an existing conflicting VDF depot key");
+                File.WriteAllText(vdf, initialVdf);
+                SlsBackend.Install(archive, "440", settings);
+                Check(File.ReadAllText(vdf).Contains(new string('d', 64)) && File.ReadAllText(settings.LumaKeys).Contains("441;" + new string('d', 64)), "manual key is injected consistently when VDF depot was absent");
+                File.WriteAllText(settings.LumaKeys, File.ReadAllText(settings.LumaKeys).Replace("441;" + new string('d', 64), "441;440;0;0;" + new string('e', 64)));
+                SlsBackend.Install(archive, "440", settings);
+                Check(File.ReadAllText(vdf).Contains(new string('e', 64)), "extended manual depot key also takes precedence in VDF");
+                File.WriteAllText(settings.LumaKeys, File.ReadAllText(settings.LumaKeys).Replace("441;440;0;0;" + new string('e', 64), "441;" + new string('d', 64)));
+            }
             SlsBackend.Remove(["440"], settings);
             Check(File.ReadAllText(settings.LumaKeys).Contains("441;" + new string('d', 64)), "manual changes survive reinstall and removal");
             File.WriteAllBytes(settings.LumaKeys, manualKeys);

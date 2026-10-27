@@ -17,6 +17,7 @@ case "${1:-shell}" in
     luma_tool=/usr/lib/lumalinux/tools/steamidra_lite.py
     [[ -r "$luma_tool" ]] || { echo 'Missing lumalinux CLI; recreate the sandbox image.' >&2; exit 1; }
     dotnet run --project tests/Fst.Tests/Fst.Tests.csproj -c Release
+    dotnet run --project tests/Fst.Linux.Platform.Tests/Fst.Linux.Platform.Tests.csproj -c Release
     # Keep fixture tests offline and independent of caller-provided overrides.
     env -u FST_TEST_LUMA_TOOL -u FST_TEST_ARCHIVE \
       dotnet run --project src/Fst.Linux/Fst.Linux.csproj -c Release -- --self-test
