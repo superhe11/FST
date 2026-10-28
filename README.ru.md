@@ -32,10 +32,10 @@ FST использует следующие проекты и сервисы:
 Для x86_64 и обычного Steam из pacman/AUR. Steam из Flatpak не поддерживается.
 
 1. Установите **SLSsteam и lumalinux** по [инструкции](https://github.com/jayool/lumalinux#manual-desktop-no-plugin).
-2. Скачайте пакет **fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst** из [релизов](https://github.com/superhe11/FST/releases). Откройте терминал в папке с файлом и выполните:
+2. Скачайте пакет **fast-steam-tools-bin-0.1.4-1-x86_64.pkg.tar.zst** из [релизов](https://github.com/superhe11/FST/releases). Откройте терминал в папке с файлом и выполните:
 
    ```bash
-   sudo pacman -U ./fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst
+   sudo pacman -U ./fast-steam-tools-bin-0.1.4-1-x86_64.pkg.tar.zst
    fst
    ```
 

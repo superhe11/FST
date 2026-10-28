@@ -32,10 +32,10 @@ Administrator privileges are not required. If Steam is not detected, select its 
 For native Steam installed through pacman/AUR on x86_64. Flatpak Steam is not supported.
 
 1. Install **SLSsteam and lumalinux** using the [setup guide](https://github.com/jayool/lumalinux#manual-desktop-no-plugin).
-2. Download **fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst** from [Releases](https://github.com/superhe11/FST/releases). Open a terminal in the download folder and run:
+2. Download **fast-steam-tools-bin-0.1.4-1-x86_64.pkg.tar.zst** from [Releases](https://github.com/superhe11/FST/releases). Open a terminal in the download folder and run:
 
    ```bash
-   sudo pacman -U ./fast-steam-tools-bin-0.1.3-1-x86_64.pkg.tar.zst
+   sudo pacman -U ./fast-steam-tools-bin-0.1.4-1-x86_64.pkg.tar.zst
    fst
    ```
 
