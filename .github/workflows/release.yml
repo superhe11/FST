@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Verify release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Match tag and package versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          [[ "$REF_TYPE" == tag && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'Run this workflow on a version tag such as v0.1.4.' >&2; exit 1;
+          }
+          version="${RELEASE_TAG#v}"
+          test "$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Directory.Build.props)" = "$version"
+          grep -Fx "pkgver=$version" packaging/arch/PKGBUILD
+
+  build:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  sandbox:
+    needs: version
+    uses: ./.github/workflows/linux-sandbox.yml
+
+  publish:
+    name: Publish verified packages
+    needs: [build, sandbox]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: fst-windows-x64
+          path: release-assets
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: fst-linux-x86_64
+          path: release-assets
+      - name: Verify assets and assemble notices
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash tools/Prepare-Release.sh "$RELEASE_TAG" release-assets
+      - name: Create draft, upload all assets, then publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --json isDraft > existing-release.json 2>/dev/null; then
+            test "$(jq -r .isDraft existing-release.json)" = true || {
+              echo 'This release is already published; refusing to replace its files.' >&2; exit 1;
+            }
+          else
+            args=(--verify-tag --draft --title "Fast Steam Tools $RELEASE_TAG")
+            if [[ "$RELEASE_TAG" == v0.* ]]; then args+=(--prerelease); fi
+            notes=".github/release-notes/$RELEASE_TAG.md"
+            if [[ -f "$notes" ]]; then args+=(--notes-file "$notes"); else args+=(--generate-notes); fi
+            gh release create "$RELEASE_TAG" "${args[@]}"
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 7
+          gh release edit "$RELEASE_TAG" --draft=false
