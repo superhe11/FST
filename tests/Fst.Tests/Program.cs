@@ -99,6 +99,8 @@ foreach (var status in new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbi
     catch (Exception e) when (e is RyuuAuthException or RyuuLimitException or HttpRequestException)
     {
         Check(status == HttpStatusCode.TooManyRequests ? e is RyuuLimitException : status == HttpStatusCode.ServiceUnavailable ? e is HttpRequestException : e is RyuuAuthException, "Ryuu HTTP state " + (int)status);
+        if (e is HttpRequestException http)
+            Check(http.StatusCode == status, "Ryuu HTTP failure retains status for safe diagnostics");
         Check(!e.Message.Contains(secret), "auth error does not expose key " + (int)status);
     }
 }

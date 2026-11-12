@@ -1,6 +1,9 @@
 (() => {
   'use strict';
-  const version = 5;
+  // CEF can expose the store URL before the new document has a root.
+  // The injector will retry; leave no half-initialized bridge behind.
+  if (!document.documentElement) return;
+  const version = 7;
   if (window.__FSTStore?.version === version) return;
   window.__FSTStore?.dispose?.();
   const bridge = window.__FST = { version: 1, requests: {}, responses: {} };
@@ -17,15 +20,25 @@
     'Denuvo не указан':'Denuvo not declared','По данным страницы Steam':'According to the Steam store page',
     'FST недоступен. Проверьте значок утилиты в трее.':'FST is unavailable. Check its tray icon.',
     'Нет ответа от FST. Проверьте значок утилиты в трее.':'No response from FST. Check its tray icon.',
-    'Откройте подключение Ryuu через значок FST в трее.':'Open the Ryuu connection from the FST tray menu.'
+    'Откройте подключение Ryuu через значок FST в трее.':'Open the Ryuu connection from the FST tray menu.',
+    'Добавить бандл в библиотеку':'Add bundle to library','Бандл установлен частично':'Bundle partially installed',
+    'Завершение Steam…':'Closing Steam…'
   };
   const t = value => status.language === 'en' ? (english[value] || value) : value;
   const labels = {
     downloading: 'Скачивание манифеста…', installing: 'Установка манифеста…',
-    restarting: 'Перезапуск Steam…', complete: 'Готово. Steam перезапускается.',
+    stopping: 'Завершение Steam…', partial: 'Бандл установлен частично', restarting: 'Перезапуск Steam…', complete: 'Готово. Steam перезапускается.',
     failed: 'Не удалось добавить игру'
   };
   const appId = () => /^\/app\/(\d+)(?:\/|$)/.exec(location.pathname)?.[1] || '';
+  const terminal = state => ['complete', 'partial', 'failed'].includes(state);
+  const bundlePage = () => /^\/(bundle|sub)\/\d+(?:\/|$)/.test(location.pathname);
+  const pageId = () => bundlePage() ? location.pathname.match(/^\/(bundle|sub)\/(\d+)/).slice(1).join(':') : appId();
+  // Read only the bundle/package contents, never recommendations or purchase links.
+  function bundleApps() {
+    return [...new Set(Array.from(document.querySelectorAll('.bundle_package_item .tab_item[data-ds-appid], .package_landing_page_item_list .tab_item[data-ds-appid]'))
+      .flatMap(el => el.getAttribute('data-ds-appid').split(',').map(id => id.trim())).filter(id => /^[1-9][0-9]{0,9}$/.test(id)))];
+  }
   function rpc(method, args = {}) {
     const id = `fst-${Date.now()}-${++nextRequest}`;
     bridge.requests[id] = { method, args };
@@ -53,11 +66,12 @@
     if (!card || !card.isConnected) return;
     const button = card.querySelector('button');
     const note = card.querySelector('[data-fst-message]');
-    const installed = (status.installed || []).some(id => String(id) === currentApp);
-    const active = submitting || (job && !['complete', 'failed'].includes(job.state));
+    const ids = bundlePage() ? bundleApps() : [currentApp];
+    const installed = ids.length > 0 && ids.every(app => (status.installed || []).some(id => String(id) === app));
+    const active = submitting || (job && !terminal(job.state));
     const state = job?.state;
     const buttonText = status.connected === false ? 'Подключить Ryuu' : active ? (labels[state] || 'Подготовка…') :
-      (installed || state === 'complete' ? 'Добавлено в библиотеку' : 'Бесплатно добавить в библиотеку');
+      (installed || state === 'complete' ? 'Добавлено в библиотеку' : bundlePage() ? 'Добавить бандл в библиотеку' : 'Бесплатно добавить в библиотеку');
     const message = (status.connected === false ? 'Войдите через Discord' : '') || job?.message || (state ? labels[state] : '') || connectionError ||
       (status.busy ? 'Выполняется другая установка. Дождитесь её завершения.' : '');
     if (button.textContent !== t(buttonText)) button.textContent = t(buttonText);
@@ -70,17 +84,19 @@
     drm.dataset.present = String(hasDenuvo);
     drm.hidden = !hasDenuvo;
     drm.title = t('По данным страницы Steam');
-    button.disabled = Boolean(active || (status.connected !== false && (installed || state === 'complete')) || status.busy || connectionError);
-    card.dataset.error = String(state === 'failed' || Boolean(connectionError));
+    button.disabled = Boolean(active || (status.connected !== false && (installed || state === 'complete')) || status.busy || connectionError || !ids.length);
+    card.dataset.error = String(state === 'failed' || state === 'partial' || Boolean(connectionError));
     button.setAttribute('aria-busy', String(Boolean(active)));
   }
   async function install() {
     if (status.connected === false) { try { await rpc('connect'); } catch { connectionError = 'Откройте подключение Ryuu через значок FST в трее.'; render(); } return; }
-    if (submitting || job && !['complete', 'failed'].includes(job.state)) return;
+    if (submitting || job && !terminal(job.state)) return;
     const id = currentApp;
     submitting = true; job = null; render();
     try {
-      const result = await rpc('install', { appid: id });
+      const result = bundlePage()
+        ? await rpc('installBatch', { appids: bundleApps().filter(app => !(status.installed || []).includes(app)) })
+        : await rpc('install', { appid: id });
       if (!result.jobId) throw new Error('Сервис не вернул идентификатор установки.');
       job = { id: result.jobId, appid: id, state: 'downloading', message: '' };
       connectionError = '';
@@ -91,7 +107,7 @@
   }
   function reconcile() {
     if (disposed) return;
-    const id = appId();
+    const id = bundlePage() ? (status.batchInstall ? pageId() : '') : appId();
     if (id !== currentApp) {
       card?.remove(); card = null; currentApp = id;
       if (job?.appid !== id) job = null;
@@ -99,7 +115,8 @@
     if (!id) return;
     if (!card?.isConnected) {
       const host = document.querySelector('#game_area_purchase') ||
-        document.querySelector('.game_area_purchase') || document.querySelector('.game_area_purchase_game');
+        document.querySelector('.game_area_purchase') || document.querySelector('.game_area_purchase_game') ||
+        (bundlePage() ? document.querySelector('.bundle_contents') || document.querySelector('.package_contents') : null);
       if (!host) return;
       card = document.createElement('section');
       card.id = 'fst-store-action';
@@ -120,7 +137,7 @@
     polling = true;
     try {
       status = await rpc('status');
-      if (job?.id && !['complete', 'failed'].includes(job.state)) {
+      if (job?.id && !terminal(job.state)) {
         const activeJob = job;
         const update = await rpc('job', { jobId: activeJob.id });
         if (job === activeJob) {
@@ -150,7 +167,7 @@
     #fst-store-action button:hover:not(:disabled) { background-color:#80b735; }
     #fst-store-action button:focus-visible { outline:2px solid #c7e6ff; outline-offset:3px; }
     #fst-store-action button:disabled { cursor:default; opacity:.65; }
-    #fst-store-action [data-fst-message] { margin-top:9px; color:#a9bac7; overflow-wrap:anywhere; }
+    #fst-store-action [data-fst-message] { margin-top:9px; color:#a9bac7; overflow-wrap:anywhere; white-space:pre-line; }
     #fst-store-action[data-error="true"] [data-fst-message] { color:#f3b9ad; }
   `;
   (document.head || document.documentElement).append(style);

@@ -136,6 +136,82 @@ try
     catch (IOException e) when (e.Message == "install failed") { }
     Check(events.Count == 0, "failed installation leaves Steam closed for recovery");
 
+    var upstreamError = RyuuSession.SafeError(new HttpRequestException("sensitive response body", null, System.Net.HttpStatusCode.BadGateway));
+    Check(upstreamError.Contains("502") && !upstreamError.Contains("sensitive"), "Ryuu server failure exposes HTTP status without response body");
+    var socketError = RyuuSession.SafeError(new HttpRequestException("sensitive request", new System.Net.Sockets.SocketException((int)System.Net.Sockets.SocketError.NetworkUnreachable)));
+    Check(socketError.Contains("NetworkUnreachable") && !socketError.Contains("sensitive"), "Ryuu transport failure exposes socket category without request secrets");
+
+    // Batch failures are per item; Steam lifecycle belongs to the entire batch.
+    var batchEvents = new List<string>();
+    async Task<BatchResult> Batch(string[] ids, bool restart = true, bool stopFails = false, bool startFails = false, bool downloadsFail = false, bool installsFail = false)
+    {
+        return await BatchInstaller.RunAsync(ids, id =>
+        {
+            batchEvents.Add("download " + id);
+            if (downloadsFail || id == "20")
+                throw new IOException("missing manifest");
+            return Task.FromResult(id + ".zip");
+        }, () =>
+        {
+            batchEvents.Add("stop");
+            return stopFails ? Task.FromException(new IOException("shutdown timeout")) : Task.CompletedTask;
+        }, (archive, id) =>
+        {
+            batchEvents.Add("install " + id);
+            if (installsFail || id == "30")
+                throw new IOException("invalid archive");
+            File.WriteAllText(Path.Combine(sandbox, id + ".installed"), archive);
+        }, () =>
+        {
+            batchEvents.Add("start");
+            if (startFails)
+                throw new IOException("launch failed");
+        }, restart, (_, _) => { }, e => e.Message);
+    }
+    var batch = await Batch(["10", "20", "30", "40", "10"]);
+    Check(batchEvents.SequenceEqual(new[] { "download 10", "download 20", "download 30", "download 40", "stop", "install 10", "install 30", "install 40", "start" }), "batch downloads once per app, then stops Steam once and starts it once after all installs");
+    Check(batch.Items.Select(i => i.Installed).SequenceEqual(new[] { true, false, false, true }) && batch.Items[1].Error == "missing manifest" && batch.Items[2].Error == "invalid archive", "batch reports download and installation failures separately and continues to later apps");
+    Check(File.Exists(Path.Combine(sandbox, "10.installed")) && File.Exists(Path.Combine(sandbox, "40.installed")), "batch retains successful deployments on either side of a failed item");
+    batchEvents.Clear();
+    batch = await Batch(["10", "40"], restart: false);
+    Check(batch.Items.All(i => i.Installed) && batchEvents.Count(e => e == "stop") == 1 && !batchEvents.Contains("start"), "batch respects disabled automatic restart");
+    batchEvents.Clear();
+    batch = await Batch(["10", "40"], downloadsFail: true);
+    Check(batch.Items.All(i => !i.Installed) && batchEvents.All(e => e.StartsWith("download ")), "all missing manifests leave Steam untouched");
+    batchEvents.Clear();
+    batch = await Batch(["10", "40"], stopFails: true);
+    Check(batch.Items.All(i => !i.Installed) && batch.LifecycleError == "shutdown timeout" && !batchEvents.Any(e => e.StartsWith("install ") || e == "start"), "batch shutdown failure prevents writes and restart");
+    batchEvents.Clear();
+    batch = await Batch(["10", "40"], startFails: true);
+    Check(batch.Items.All(i => i.Installed) && batch.LifecycleError == "launch failed" && batchEvents.Count(e => e == "start") == 1, "failed final launch preserves installation results without retrying Steam launch");
+    batchEvents.Clear();
+    batch = await Batch(["10", "40"], installsFail: true);
+    Check(batch.Items.All(i => !i.Installed) && batchEvents.Count(e => e.StartsWith("install ")) == 2 && !batchEvents.Contains("start"), "all failed deployments are attempted and leave Steam closed for recovery");
+    foreach (var invalid in new[] { Array.Empty<string>(), new[] { "10", "../20" }, Enumerable.Repeat("10", 201).ToArray() })
+    {
+        batchEvents.Clear();
+        try
+        {
+            await Batch(invalid);
+            throw new Exception("Expected invalid batch rejection");
+        }
+        catch (InvalidDataException) { }
+        Check(batchEvents.Count == 0, "invalid batch rejected before downloads or Steam operations");
+    }
+    var service = new JobService(new Settings(), new RyuuSession(loadSaved: false), _ => { }, () => { });
+    using (var lease = service.BeginMaintenance())
+    {
+        using var batchArgs = JsonDocument.Parse("{\"appids\":[\"10\",\"40\"]}");
+        try
+        {
+            service.Dispatch("installBatch", batchArgs.RootElement);
+            throw new Exception("Expected busy rejection");
+        }
+        catch (InvalidOperationException) { }
+        Check(service.IsBusy, "batch cannot bypass an existing maintenance lease");
+    }
+    Check(!service.IsBusy, "maintenance lease is released after batch rejection");
+
     if (OperatingSystem.IsLinux())
     {
         // Exercise the process guard without sending a shutdown request to any

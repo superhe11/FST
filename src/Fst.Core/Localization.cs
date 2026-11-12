@@ -18,6 +18,12 @@ public static class Localization
     public static event Action? Changed;
     private static readonly Dictionary<string, string> English = new()
     {
+        ["Установка бандлов пока доступна только на Linux."] = "Bundle installation is currently available only on Linux.",
+        ["Бандл должен содержать от 1 до 200 приложений."] = "A bundle must contain between 1 and 200 apps.",
+        ["Ryuu: HTTP {0}. Повторите попытку позже."] = "Ryuu: HTTP {0}. Try again later.",
+        ["Не удалось связаться с Ryuu: {0}. Проверьте соединение."] = "Could not reach Ryuu: {0}. Check your connection.",
+        ["Бандл: {0}"] = "Bundle: {0}",
+        ["Бандл: установлено {0} из {1}."] = "Bundle: installed {0} of {1}.",
         ["Откат завершён не полностью. Резервная копия и диагностика: {0}"] = "Rollback was incomplete. Backup and diagnostics: {0}",
         ["Не удалось завершить Steam. Закройте его и повторите установку."] = "Steam could not be stopped. Close it and retry installation.",
         ["Перед установкой завершите Steam."] = "Close Steam before installing.",

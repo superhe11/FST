@@ -9,6 +9,18 @@ void Check(bool success, string message) { if (!success) throw new Exception(mes
 File.WriteAllText(Path.Combine(root, "steam.exe"), "");
 File.WriteAllText(Path.Combine(root, "OpenSteamTool.dll"), "test placeholder");
 var settings = new Settings { SteamRoot = root, LuaDirectory = Path.Combine(root, "config", "lua"), DepotDirectory = Path.Combine(root, "config", "depotcache") };
+var jobs = new JobService(settings, new RyuuSession(loadSaved: false), _ => { }, () => { });
+using (var batchArgs = System.Text.Json.JsonDocument.Parse("{\"appids\":[\"440\",\"441\"]}"))
+{
+    try
+    {
+        jobs.Dispatch("installBatch", batchArgs.RootElement);
+        throw new Exception("Expected Linux-only stub");
+    }
+    catch (PlatformNotSupportedException) { Check(!jobs.IsBusy && !SteamControl.Busy, "Windows batch stub rejects before auth, downloads or Steam operations"); }
+    var status = System.Text.Json.JsonSerializer.SerializeToElement(jobs.Dispatch("status", batchArgs.RootElement));
+    Check(!status.GetProperty("batchInstall").GetBoolean(), "Windows does not advertise batch installation");
+}
 var builtIn = Path.Combine(root, "config", "stplug-in");
 Check(settings.Plan().AdditionalLuaDirectories!.Contains(builtIn), "fresh Steam with no TOML includes BetterSteamTools Lua path");
 var archive = Path.Combine(root, "game.zip");

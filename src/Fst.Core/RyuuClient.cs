@@ -115,7 +115,7 @@ public sealed class RyuuClient : IDisposable
         if ((int)response.StatusCode is >= 300 and < 400)
             throw new RyuuAuthException();
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException("Ryuu: HTTP " + (int)response.StatusCode);
+            throw new HttpRequestException("Ryuu: HTTP " + (int)response.StatusCode, null, response.StatusCode);
         return Task.CompletedTask;
     }
     public void Dispose() => client.Dispose();
