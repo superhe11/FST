@@ -62,6 +62,14 @@ rm "$run_dir/create.log"
 "$box" exec timeout 45 release/fst-linux-x64/app/fst --preview 2>&1 | tee "$results/gui.log"
 podman cp "$FST_SANDBOX_NAME:/home/dev/.local/share/fst/linux-main.png" "$results/fst-linux.png"
 test -s "$results/fst-linux.png"
+"$box" exec timeout 45 release/fst-linux-x64/app/fst --preview-notification 2>&1 | tee "$results/notification.log"
+for position in top bottom; do
+  podman cp "$FST_SANDBOX_NAME:/home/dev/.local/share/fst/linux-notification-$position.png" "$results/fst-notification-$position.png"
+  test -s "$results/fst-notification-$position.png"
+done
+"$box" exec timeout 45 release/fst-linux-x64/app/fst --preview-batch 2>&1 | tee "$results/batch-ui.log"
+podman cp "$FST_SANDBOX_NAME:/home/dev/.local/share/fst/linux-batch-progress.png" "$results/fst-batch-progress.png"
+test -s "$results/fst-batch-progress.png"
 if [[ "$mode" == --steam ]]; then
   "$box" steam
   ready=false

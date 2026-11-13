@@ -18,6 +18,16 @@ public static class Localization
     public static event Action? Changed;
     private static readonly Dictionary<string, string> English = new()
     {
+        ["Отменить бандл"] = "Cancel batch",
+        ["Отмена…"] = "Cancelling…",
+        ["Бандл отменён."] = "Batch cancelled.",
+        ["Установка пропущена: бандл отменён."] = "Installation skipped: the batch was cancelled.",
+        ["ожидание ответа Ryuu"] = "waiting for Ryuu",
+        ["получено {0} КБ"] = "received {0} KB",
+        ["Приложение {0} из {1} · {2} · прошло {3} с"] = "App {0} of {1} · {2} · {3} s elapsed",
+        ["Отмена запрошена. Текущая запись файлов будет завершена безопасно."] = "Cancellation requested. Any file writes in progress will finish safely.",
+        ["Установка пропущена: бандл остановлен из-за неполного отката."] = "Installation skipped: the batch stopped because rollback was incomplete.",
+        ["Бандл остановлен. Steam оставлен закрытым. {0}"] = "Batch stopped. Steam has been left closed. {0}",
         ["Установка бандлов пока доступна только на Linux."] = "Bundle installation is currently available only on Linux.",
         ["Бандл должен содержать от 1 до 200 приложений."] = "A bundle must contain between 1 and 200 apps.",
         ["Ryuu: HTTP {0}. Повторите попытку позже."] = "Ryuu: HTTP {0}. Try again later.",

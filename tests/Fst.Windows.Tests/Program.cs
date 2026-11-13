@@ -18,7 +18,14 @@ using (var batchArgs = System.Text.Json.JsonDocument.Parse("{\"appids\":[\"440\"
         throw new Exception("Expected Linux-only stub");
     }
     catch (PlatformNotSupportedException) { Check(!jobs.IsBusy && !SteamControl.Busy, "Windows batch stub rejects before auth, downloads or Steam operations"); }
+    try
+    {
+        jobs.Dispatch("cancelBatch", batchArgs.RootElement);
+        throw new Exception("Expected Linux-only cancellation stub");
+    }
+    catch (PlatformNotSupportedException) { Check(!jobs.IsBusy, "Windows batch cancellation stub is side-effect free"); }
     var status = System.Text.Json.JsonSerializer.SerializeToElement(jobs.Dispatch("status", batchArgs.RootElement));
+    Check(!status.GetProperty("batchCancel").GetBoolean(), "Windows does not advertise batch cancellation");
     Check(!status.GetProperty("batchInstall").GetBoolean(), "Windows does not advertise batch installation");
 }
 var builtIn = Path.Combine(root, "config", "stplug-in");

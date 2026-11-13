@@ -354,7 +354,7 @@ public static class SlsBackend
                     }));
                 }
                 catch (Exception diagnosticError) { errors.Add(diagnosticError); }
-                throw new IOException(L.F("Откат завершён не полностью. Резервная копия и диагностика: {0}", backup),
+                throw new IncompleteRollbackException(backup,
                     new AggregateException(new[] { failure }.Concat(errors)));
             }
             throw;
