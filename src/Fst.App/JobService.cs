@@ -4,23 +4,31 @@ using Fst.Core;
 
 namespace Fst.App;
 
-public sealed record Job(string State, string Message);
-public sealed class JobService(Settings settings, RyuuSession session, Action<string> notify, Action connect)
+public sealed record Job(string State, string Message, BatchItem[]? Items = null, BatchProgress? Progress = null, bool CanCancel = false, bool CancellationRequested = false);
+public sealed class JobService(Settings settings, RyuuSession session, Action<string> notify, Action connect, Action<string>? batchCompleted = null)
 {
     private readonly ConcurrentDictionary<string, Job> jobs = new();
     private readonly SemaphoreSlim gate = new(1, 1);
+    private volatile BatchOperation? activeBatch;
+    public BatchStatus? ActiveBatch => activeBatch is { } batch ? new(batch.JobId, GetJob(batch.JobId)) : null;
+    public bool CancelBatch(string jobId) => activeBatch is { } batch && batch.JobId == jobId && batch.Cancel();
+    private Job GetJob(string jobId)
+    {
+        if (!jobs.TryGetValue(jobId, out var job))
+            throw new InvalidOperationException(L.T("Задание не найдено."));
+        return activeBatch is { } batch && batch.JobId == jobId ? batch.Snapshot(job) : job;
+    }
     // True during a game install or a Steam rollback: both change Steam, so Lua removal and uninstall wait for them.
     public static bool InstallationActive => SteamControl.Busy;
     public bool IsBusy => gate.CurrentCount == 0;
     public object Dispatch(string method, JsonElement args) => method switch
     {
-        "status" => new { installed = Installed(), busy = gate.CurrentCount == 0, connected = session.Connected, authStatus = session.Status, restartAfterInstall = settings.RestartAfterInstall, batchInstall = false, batchCancel = false, language = L.Language, loader = LuaLoader.Find(settings.SteamRoot) },
+        "status" => new { installed = Installed(), busy = gate.CurrentCount == 0, connected = session.Connected, authStatus = session.Status, restartAfterInstall = settings.RestartAfterInstall, batchInstall = true, batchCancel = true, activeBatchJobId = activeBatch?.JobId, language = L.Language, loader = LuaLoader.Find(settings.SteamRoot) },
         "connect" => OpenConnection(),
-        // TODO Windows: implement one batch lease, independent item results and one final Steam restart.
-        "cancelBatch" => throw new PlatformNotSupportedException(L.T("Установка бандлов пока доступна только на Linux.")),
-        "installBatch" => throw new PlatformNotSupportedException(L.T("Установка бандлов пока доступна только на Linux.")),
+        "cancelBatch" => new { cancellationRequested = CancelBatch(args.GetProperty("jobId").GetString()!) },
+        "installBatch" => StartBatch(args.GetProperty("appids").EnumerateArray().Select(id => id.GetString()!).ToArray()),
         "install" => Start(args.GetProperty("appid").GetString()!),
-        "job" => jobs.TryGetValue(args.GetProperty("jobId").GetString()!, out var job) ? job : throw new InvalidOperationException("Задание не найдено."),
+        "job" => GetJob(args.GetProperty("jobId").GetString()!),
         _ => throw new InvalidOperationException("Неизвестный метод FST.")
     };
     private object OpenConnection()
@@ -29,6 +37,101 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
         return new
         {
             opened = true
+        };
+    }
+    private object StartBatch(string[] ids)
+    {
+        ids = WindowsBatchInstaller.Validate(ids);
+        var authKey = session.RequireKey();
+        SteamControl.Begin(SteamControl.Install);
+        if (!gate.Wait(0))
+        {
+            SteamControl.End();
+            throw new InvalidOperationException(L.T("Установка уже идёт. Дождитесь завершения."));
+        }
+        var jobId = Guid.NewGuid().ToString("N");
+        var operation = new BatchOperation(jobId, ids);
+        operation.Update("preparing", ids[0]);
+        jobs[jobId] = new("installing", L.T("Установка Lua-загрузчика BetterSteamTools…"));
+        activeBatch = operation;
+        _ = Task.Run(async () =>
+        {
+            var directory = Path.Combine(Settings.DataRoot, "batch-" + jobId);
+            string Error(Exception e)
+            {
+                if (e is RyuuAuthException)
+                    session.Reject(authKey);
+                return e is HttpRequestException or OperationCanceledException ? RyuuSession.SafeError(e) : L.T(e.Message);
+            }
+            try
+            {
+                Directory.CreateDirectory(directory);
+                await EnsureLoaderAsync(settings, operation.Token);
+                if (LuaLoader.Broken(settings.SteamRoot, LoaderStateFile))
+                    throw new InvalidOperationException(LuaLoader.MissingMessage);
+                using var client = new RyuuClient();
+                var result = await WindowsBatchInstaller.RunAsync(ids, async (id, ct) =>
+                {
+                    var archive = Path.Combine(directory, id + ".zip");
+                    await client.DownloadAsync(id, authKey, archive, ct, operation.Received);
+                    return archive;
+                }, () => SteamControl.StopForBatchAsync(settings), (archive, id) =>
+                {
+                    var installed = ManifestInstaller.Install(archive, id, settings.Plan(), Path.Combine(Settings.DataRoot, "backups"));
+                    Log("Установлена игра {0}: Lua — {1}, манифестов — {2}. Копия: {3}", id, installed.LuaFiles, installed.ManifestFiles, installed.BackupDirectory);
+                }, () => SteamControl.StartAfterBatch(settings), settings.RestartAfterInstall, (state, id) =>
+                {
+                    operation.Update(state, id);
+                    jobs[jobId] = new(state, "");
+                }, Error, operation.Token);
+                operation.Complete();
+                var count = result.Items.Count(i => i.Installed);
+                var unsupported = count > 0 ? await UnsupportedSteamWarningAsync(settings) : null;
+                var state = result.Cancelled ? "cancelled" : count == 0 ? "failed" : count == ids.Length && result.LifecycleError == null ? "complete" : "partial";
+                var message = L.F("Бандл: установлено {0} из {1}.", count, ids.Length);
+                if (result.Cancelled)
+                    message = L.T("Бандл отменён.") + "\n" + message;
+                if (result.LifecycleError != null)
+                    message += "\n" + result.LifecycleError;
+                if (count > 0 && !settings.RestartAfterInstall)
+                    message += "\n" + L.T("Steam оставлен закрытым.");
+                if (unsupported != null)
+                    message += "\n" + unsupported;
+                foreach (var item in result.Items.Where(i => !i.Installed))
+                    message += $"\n{item.AppId}: {item.Error}";
+                jobs[jobId] = new(state, message, result.Items);
+                Log("{0}", message);
+                if (batchCompleted != null)
+                    batchCompleted(message);
+                else
+                    notify(message);
+            }
+            catch (Exception e)
+            {
+                operation.Complete();
+                var cancelled = e is OperationCanceledException && operation.Token.IsCancellationRequested;
+                var message = cancelled ? L.T("Бандл отменён.") : Error(e);
+                jobs[jobId] = new(cancelled ? "cancelled" : "failed", message);
+                Log("{0}", message);
+                if (batchCompleted != null)
+                    batchCompleted(message);
+                else
+                    notify(message);
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(directory))
+                        Directory.Delete(directory, true);
+                }
+                catch (Exception e) { Log("Ошибка установки: {0}", e.Message); }
+                finally { activeBatch = null; operation.Dispose(); gate.Release(); SteamControl.End(); }
+            }
+        });
+        return new
+        {
+            jobId
         };
     }
     private string[] Installed() => new[] { settings.LuaDirectory }.Concat(settings.ActiveLuaDirectories()).Where(Directory.Exists).SelectMany(d => Directory.EnumerateFiles(d, "*.lua")).Select(Path.GetFileNameWithoutExtension).OfType<string>().Distinct().ToArray();

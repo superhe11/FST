@@ -285,6 +285,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly RyuuSession session;
     private ConnectForm? connectionForm;
     private SettingsForm? form;
+    private BatchStatusForm? batchForm;
+    private string? shownBatchId;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 3000 };
     private readonly Control dispatcher = new();
     private readonly TrayMenu trayMenu;
@@ -297,12 +299,29 @@ internal sealed class TrayContext : ApplicationContext
         menu.Items.Add(L.T("Открыть FST"), null, (_, _) => ShowSettings());
         menu.Items.Add(L.T("Подключить Ryuu"), null, (_, _) => ShowConnection());
         menu.Items.Add(L.T("Открыть логи"), null, (_, _) => Shell.OpenLogs());
-        menu.Items.Add(L.T("Перезапустить Steam"), null, async (_, _) => { try { await SteamControl.RestartAsync(settings); } catch (Exception e) { Notify(L.T(e.Message)); } });
+        menu.Items.Add(L.T("Перезапустить Steam"), null, async (_, _) =>
+        {
+            var acquired = false;
+            try
+            {
+                SteamControl.Begin(SteamControl.Install);
+                acquired = true;
+                await SteamControl.RestartAsync(settings);
+            }
+            catch (Exception e) { Notify(L.T(e.Message)); }
+            finally { if (acquired) SteamControl.End(); }
+        });
         menu.Items.Add(new ToolStripSeparator());
         trayMenu = new TrayMenu(menu);
         tray = new NotifyIcon { Text = "", Icon = AppIcon.Load(), Visible = true };
         tray.MouseClick += (_, e) => { if (e.Button is MouseButtons.Left or MouseButtons.Right) trayMenu.Show(); };
-        var jobs = new JobService(settings, session, Notify, () => dispatcher.BeginInvoke(ShowConnection));
+        JobService jobs = null!;
+        jobs = new JobService(settings, session, Notify, () => dispatcher.BeginInvoke(ShowConnection), text => dispatcher.BeginInvoke(() =>
+        {
+            if (batchForm is null || batchForm.IsDisposed)
+                batchForm = new BatchStatusForm(jobs.CancelBatch);
+            batchForm.ShowResult(text);
+        }));
         menu.Items.Add(L.T("Выход"), null, (_, _) => { if (SteamControl.DowngradeActive) Notify(L.T("Идёт откат Steam. Дождитесь завершения.")); else if (jobs.IsBusy) Notify(L.T("Дождитесь окончания установки.")); else ExitThread(); });
         L.Changed += TranslateMenu;
         void TranslateMenu()
@@ -312,7 +331,25 @@ internal sealed class TrayContext : ApplicationContext
         }
         injector = new CdpInjector(jobs);
         _ = Task.Run(async () => { try { await injector.RunAsync(cancellation.Token); } catch (OperationCanceledException) { } catch (Exception e) { JobService.Log("Ошибка внедрения интерфейса: {0}", e.Message); } });
-        timer.Tick += (_, _) => { form?.RefreshStatus(); connectionForm?.RefreshStatus(); };
+        timer.Tick += (_, _) =>
+        {
+            form?.RefreshStatus();
+            connectionForm?.RefreshStatus();
+            var active = jobs.ActiveBatch;
+            if (active != null && active.Job.State is not ("complete" or "partial" or "failed" or "cancelled"))
+            {
+                if (batchForm is null || batchForm.IsDisposed)
+                    batchForm = new BatchStatusForm(jobs.CancelBatch);
+                batchForm.ShowProgress(active);
+                if (shownBatchId != active.JobId)
+                {
+                    shownBatchId = active.JobId;
+                    batchForm.Show();
+                }
+            }
+            else
+                shownBatchId = null;
+        };
         timer.Start();
         if (!settings.RyuuImportAttempted)
         {
@@ -362,6 +399,11 @@ internal sealed class TrayContext : ApplicationContext
             form = new SettingsForm(settings, injector, session, ShowConnection);
         form.Show();
         form.Activate();
+        if (batchForm is { IsDisposed: false })
+        {
+            batchForm.Show();
+            batchForm.Activate();
+        }
     }
     private void ShowConnection()
     {

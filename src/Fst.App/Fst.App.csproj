@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net9.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><AssemblyName>FST</AssemblyName><RootNamespace>Fst.App</RootNamespace><ApplicationManifest>app.manifest</ApplicationManifest></PropertyGroup>
   <PropertyGroup><ApplicationIcon>Assets/fst.ico</ApplicationIcon></PropertyGroup>
-  <ItemGroup><ProjectReference Include="../Fst.Core/Fst.Core.csproj"/><EmbeddedResource Include="StoreScript.js" /><EmbeddedResource Include="Assets/fst.ico" /><EmbeddedResource Include="Finish-Uninstall.ps1" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../Fst.Core/Fst.Core.csproj"/><EmbeddedResource Include="StoreScript.js" /><EmbeddedResource Include="Assets/fst.ico" /><EmbeddedResource Include="Finish-Uninstall.ps1" /><Compile Include="../Fst.Linux.Platform/BatchOperation.cs" Link="BatchOperation.cs" /></ItemGroup>
 </Project>

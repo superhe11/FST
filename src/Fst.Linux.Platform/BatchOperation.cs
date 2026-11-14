@@ -57,6 +57,7 @@ internal sealed class BatchOperation(string jobId, string[] ids, TimeProvider? t
             var current = appId == null ? ids.Length : Array.IndexOf(ids, appId) + 1;
             var detail = phase switch
             {
+                "preparing" => L.T("Установка Lua-загрузчика BetterSteamTools…"),
                 "downloading" => L.T("ожидание ответа Ryuu"),
                 "receiving" => L.F("получено {0} КБ", receivedBytes / 1024),
                 "stopping" => L.T("Завершение Steam перед установкой…"),
