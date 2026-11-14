@@ -78,7 +78,7 @@ public sealed class CdpInjector(JobService jobs)
                             }
                             catch (Exception e) { reply = new { error = L.T(e.Message) }; }
                             var json = JsonSerializer.Serialize(reply, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-                            await Evaluate(socket, "window.__FST.responses[" + JsonSerializer.Serialize(req.Name) + "]=" + json, ct);
+                            await Evaluate(socket, "if(window.__FST)window.__FST.responses[" + JsonSerializer.Serialize(req.Name) + "]=" + json, ct);
                         }
                     }
                     catch (Exception e) when (e is not OperationCanceledException)

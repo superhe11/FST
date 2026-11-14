@@ -21,7 +21,10 @@ public sealed partial class DesktopApp : Application
     private JobService jobs = null!;
     private CdpInjector injector = null!;
     private IClassicDesktopStyleApplicationLifetime lifetime = null!;
-    private Window? main, connection;
+    private Window? main, connection, batchWindow;
+    private string? displayedBatchId;
+    private TextBlock? batchMessage;
+    private Button? batchCancel;
     private TrayIcon? tray;
     private DispatcherTimer timer = null!;
     private readonly CancellationTokenSource stopping = new();
@@ -36,7 +39,7 @@ public sealed partial class DesktopApp : Application
             return;
         lifetime = desktop;
         lifetime.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        preview = desktop.Args?.Any(a => a is "--preview" or "--preview-en") == true;
+        preview = desktop.Args?.Any(a => a is "--preview" or "--preview-en" or "--preview-notification" or "--preview-batch") == true;
         settings = Settings.Load();
         L.Language = desktop.Args?.Contains("--preview-en") == true ? "en" : settings.Language;
         // secret-tool may block on a locked keyring, so the saved key is loaded in the background below.
@@ -114,6 +117,16 @@ public sealed partial class DesktopApp : Application
         if (preview)
             DispatcherTimer.RunOnce(() =>
         {
+            if (desktop.Args?.Contains("--preview-batch") == true)
+            {
+                PreviewBatch();
+                return;
+            }
+            if (desktop.Args?.Contains("--preview-notification") == true)
+            {
+                PreviewNotification();
+                return;
+            }
             using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)main.Width, (int)main.Height), new Vector(96, 96));
             bitmap.Render(main);
             bitmap.Save(Path.Combine(Settings.DataRoot, "linux-main.png"));
@@ -225,11 +238,61 @@ public sealed partial class DesktopApp : Application
         steam.Text = L.T(injector.Connected ? "Steam подключён" : "Ожидание Steam");
         backend.Text = !File.Exists(settings.SlsLibrary) ? L.T("Установите SLSsteam и выберите SLSsteam.so в каталогах.") : !File.Exists(settings.LumaLibrary) ? L.T("Установите lumalinux и выберите liblumalinux.so в каталогах.") : !File.Exists(LumaBackend.FindTool(settings)) ? L.T("Не найден steamidra_lite.py. Обновите lumalinux или выберите инструмент в каталогах.") : "";
         backend.IsVisible = !string.IsNullOrEmpty(backend.Text);
+        UpdateBatchWindow();
+    }
+    private void UpdateBatchWindow() => UpdateBatchWindow(jobs.ActiveBatch);
+    private void UpdateBatchWindow(BatchStatus? active)
+    {
+        if (active == null || active.Job.State is "complete" or "partial" or "failed" or "cancelled")
+        {
+            displayedBatchId = null;
+            batchWindow?.Close();
+            batchWindow = null;
+            return;
+        }
+        if (batchWindow != null && displayedBatchId != active.JobId)
+        {
+            displayedBatchId = null;
+            batchWindow.Close();
+            batchWindow = null;
+        }
+        if (batchWindow == null)
+        {
+            displayedBatchId = active.JobId;
+            var window = Window(330);
+            batchWindow = window;
+            batchMessage = Text("");
+            batchCancel = Button("Отменить бандл", () =>
+            {
+                if (displayedBatchId != null)
+                    jobs.CancelBatch(displayedBatchId);
+                UpdateBatchWindow();
+            });
+            var body = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), RowSpacing = 14 };
+            body.Children.Add(new ScrollViewer { Content = batchMessage });
+            Grid.SetRow(batchCancel, 1);
+            body.Children.Add(batchCancel);
+            window.Content = Frame(window, body);
+            window.Closing += (_, e) =>
+            {
+                if (displayedBatchId == active.JobId)
+                {
+                    e.Cancel = true;
+                    window.Hide();
+                }
+            };
+            window.Show();
+        }
+        batchMessage!.Text = active.Job.Message;
+        batchCancel!.Content = L.T(active.Job.CancellationRequested ? "Отмена…" : "Отменить бандл");
+        batchCancel.IsEnabled = active.Job.CanCancel;
     }
     private void ShowMain()
     {
         main!.Show();
         main.Activate();
+        batchWindow?.Show();
+        batchWindow?.Activate();
     }
     private void UpdateTray()
     {
@@ -256,12 +319,118 @@ public sealed partial class DesktopApp : Application
         }
         catch (Exception e) { Notify(e is HttpRequestException or RyuuAuthException ? RyuuSession.SafeError(e) : L.T(e.Message)); }
     }
-    private void Notify(string message) => Dispatcher.UIThread.Post(() =>
+    private void Notify(string message) => Dispatcher.UIThread.Post(() => CreateNotification(message).Show());
+    private Window CreateNotification(string message)
     {
         var window = Window(250);
-        window.Content = Frame(window, Stack(Text(message), Button("OK", window.Close, true)));
-        window.Show();
-    });
+        var body = new Grid { RowDefinitions = new RowDefinitions("*,Auto"), RowSpacing = 14 };
+        var scroll = new ScrollViewer
+        {
+            Content = Text(message),
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+        };
+        var close = Button("OK", window.Close, true);
+        Grid.SetRow(close, 1);
+        body.Children.Add(scroll);
+        body.Children.Add(close);
+        window.Content = Frame(window, body);
+        return window;
+    }
+    private void PreviewBatch()
+    {
+        try
+        {
+            var job = new Job("downloading", L.F("Приложение {0} из {1} · {2} · прошло {3} с", 1, 5,
+                L.T("ожидание ответа Ryuu"), 40) + "\nAppID: 1609230", CanCancel: true);
+            UpdateBatchWindow(new("preview", job));
+            var window = batchWindow!;
+            window.UpdateLayout();
+            var body = (Grid)batchCancel!.Parent!;
+            if (!batchCancel.IsEnabled || batchCancel.Bounds.Bottom > body.Bounds.Height || batchCancel.Bounds.Height <= 0)
+                throw new InvalidOperationException("Batch cancellation button is not visible/enabled");
+            using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)window.Width, (int)window.Height), new Vector(96, 96)))
+            {
+                bitmap.Render(window);
+                bitmap.Save(Path.Combine(Settings.DataRoot, "linux-batch-progress.png"));
+            }
+            Console.WriteLine("PASS desktop shows batch progress and an accessible cancel button");
+            UpdateBatchWindow(new("preview", job with
+            {
+                CanCancel = false,
+                CancellationRequested = true
+            }));
+            if (batchCancel.IsEnabled || !Equals(batchCancel.Content, L.T("Отмена…")))
+                throw new InvalidOperationException("Pending cancellation was not reflected in the desktop");
+            Console.WriteLine("PASS desktop disables duplicate cancellation while the batch finishes safely");
+            UpdateBatchWindow(new("next-batch", job));
+            if (window.IsVisible || displayedBatchId != "next-batch" || !batchCancel!.IsEnabled)
+                throw new InvalidOperationException("Desktop retained the previous batch cancellation target");
+            window = batchWindow!;
+            Console.WriteLine("PASS desktop switches cancellation target when batches start between UI ticks");
+            UpdateBatchWindow(null);
+            if (window.IsVisible)
+                throw new InvalidOperationException("Batch progress window did not close");
+            Console.WriteLine("PASS desktop closes the progress window when the batch finishes");
+            exiting = true;
+            lifetime.Shutdown();
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine("FAIL batch preview: " + e.Message);
+            exiting = true;
+            lifetime.Shutdown(1);
+        }
+    }
+    private void PreviewNotification()
+    {
+        try
+        {
+            var message = L.F("Бандл: установлено {0} из {1}.", 0, 200) + "\n" +
+                string.Join("\n", Enumerable.Range(1, 200).Select(id => $"{id}: " + L.T("Ryuu: HTTP 504. Повторите попытку позже.")));
+            var window = CreateNotification(message);
+            window.Show();
+            window.UpdateLayout();
+            var scroll = window.GetLogicalDescendants().OfType<ScrollViewer>().First();
+            var close = window.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "OK"));
+            var body = (Grid)close.Parent!;
+            void Check(bool condition, string name)
+            {
+                if (!condition)
+                    throw new InvalidOperationException(name);
+                Console.WriteLine("PASS " + name);
+            }
+            void Save(string name)
+            {
+                using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize((int)window.Width, (int)window.Height), new Vector(96, 96));
+                bitmap.Render(window);
+                bitmap.Save(Path.Combine(Settings.DataRoot, name));
+            }
+            Check(scroll.Viewport.Height > 0 && scroll.Extent.Height > scroll.Viewport.Height,
+                "200-line result has a bounded scrollable viewport");
+            Check(close.Bounds.Height > 0 && close.Bounds.Bottom <= body.Bounds.Height && close.Bounds.Top >= scroll.Bounds.Bottom,
+                "OK button stays inside the result window below the scroll area");
+            Check(((TextBlock)scroll.Content!).Text == message, "long result preserves every error line");
+            Save("linux-notification-top.png");
+            scroll.ScrollToEnd();
+            window.UpdateLayout();
+            Check(scroll.Offset.Y > 0 && Math.Abs(scroll.Offset.Y + scroll.Viewport.Height - scroll.Extent.Height) < 1,
+                "last error is reachable by scrolling to the end");
+            Save("linux-notification-bottom.png");
+            var closed = false;
+            window.Closed += (_, _) => closed = true;
+            close.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+            Check(closed, "OK closes the long result window");
+            exiting = true;
+            lifetime.Shutdown();
+        }
+        catch (Exception e)
+        {
+            Console.Error.WriteLine("FAIL notification preview: " + e.Message);
+            exiting = true;
+            lifetime.Shutdown(1);
+        }
+    }
     private void OpenLogs()
     {
         var path = Path.Combine(Settings.DataRoot, "fst.log");

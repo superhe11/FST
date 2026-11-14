@@ -14,8 +14,11 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
     public bool IsBusy => gate.CurrentCount == 0;
     public object Dispatch(string method, JsonElement args) => method switch
     {
-        "status" => new { installed = Installed(), busy = gate.CurrentCount == 0, connected = session.Connected, authStatus = session.Status, restartAfterInstall = settings.RestartAfterInstall, language = L.Language, loader = LuaLoader.Find(settings.SteamRoot) },
+        "status" => new { installed = Installed(), busy = gate.CurrentCount == 0, connected = session.Connected, authStatus = session.Status, restartAfterInstall = settings.RestartAfterInstall, batchInstall = false, batchCancel = false, language = L.Language, loader = LuaLoader.Find(settings.SteamRoot) },
         "connect" => OpenConnection(),
+        // TODO Windows: implement one batch lease, independent item results and one final Steam restart.
+        "cancelBatch" => throw new PlatformNotSupportedException(L.T("Установка бандлов пока доступна только на Linux.")),
+        "installBatch" => throw new PlatformNotSupportedException(L.T("Установка бандлов пока доступна только на Linux.")),
         "install" => Start(args.GetProperty("appid").GetString()!),
         "job" => jobs.TryGetValue(args.GetProperty("jobId").GetString()!, out var job) ? job : throw new InvalidOperationException("Задание не найдено."),
         _ => throw new InvalidOperationException("Неизвестный метод FST.")

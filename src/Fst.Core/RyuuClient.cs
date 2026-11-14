@@ -7,7 +7,17 @@ namespace Fst.Core;
 public sealed class RyuuClient : IDisposable
 {
     private readonly HttpClient client;
-    public RyuuClient(HttpClient? httpClient = null) => client = httpClient ?? new(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromMinutes(3) };
+    private readonly TimeSpan downloadTimeout;
+    public RyuuClient(HttpClient? httpClient = null, TimeSpan? downloadTimeout = null)
+    {
+        this.downloadTimeout = downloadTimeout ?? TimeSpan.FromMinutes(3);
+        if (this.downloadTimeout <= TimeSpan.Zero || this.downloadTimeout.TotalMilliseconds > uint.MaxValue - 1)
+            throw new ArgumentOutOfRangeException(nameof(downloadTimeout));
+        client = httpClient ?? new(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false })
+        {
+            Timeout = TimeSpan.FromMinutes(3)
+        };
+    }
 
     public async Task<RyuuIdentity> VerifyAsync(string key, CancellationToken ct = default)
     {
@@ -60,8 +70,13 @@ public sealed class RyuuClient : IDisposable
         using var json = await ReadJson(response, timeout.Token);
         return json.RootElement.TryGetProperty("auth_key", out var key) && key.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(key.GetString()) ? key.GetString() : null;
     }
-    public async Task DownloadAsync(string appId, string authKey, string target, CancellationToken ct = default)
+    public async Task DownloadAsync(string appId, string authKey, string target, CancellationToken ct = default, Action<long>? received = null)
     {
+        // ResponseHeadersRead ends HttpClient.Timeout coverage at the headers.
+        // This deadline also covers opening/reading the body and writing the archive.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(downloadTimeout);
+        ct = timeout.Token;
         ManifestInstaller.ValidateAppId(appId);
         if (string.IsNullOrWhiteSpace(authKey))
             throw new RyuuAuthException();
@@ -74,6 +89,7 @@ public sealed class RyuuClient : IDisposable
             throw new InvalidDataException("Ryuu вернул страницу вместо архива.");
         if (response.Content.Headers.ContentType?.MediaType?.Contains("json") == true)
             throw new InvalidDataException("Ryuu вернул ответ API вместо ZIP. Файлы игры могут быть недоступны.");
+        received?.Invoke(0);
         using var input = await response.Content.ReadAsStreamAsync(ct);
         using var output = File.Create(target);
         var buffer = new byte[65536];
@@ -84,7 +100,9 @@ public sealed class RyuuClient : IDisposable
             if ((total += read) > 256L * 1024 * 1024)
                 throw new InvalidDataException("Загрузка слишком большая.");
             await output.WriteAsync(buffer.AsMemory(0, read), ct);
+            received?.Invoke(total);
         }
+        ct.ThrowIfCancellationRequested();
     }
     private static async Task<JsonDocument> ReadJson(HttpResponseMessage response, CancellationToken ct)
     {
@@ -115,7 +133,7 @@ public sealed class RyuuClient : IDisposable
         if ((int)response.StatusCode is >= 300 and < 400)
             throw new RyuuAuthException();
         if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException("Ryuu: HTTP " + (int)response.StatusCode);
+            throw new HttpRequestException("Ryuu: HTTP " + (int)response.StatusCode, null, response.StatusCode);
         return Task.CompletedTask;
     }
     public void Dispose() => client.Dispose();

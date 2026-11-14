@@ -147,6 +147,8 @@ public sealed class RyuuSession
         CredentialStorageException => e.Message,
         RyuuAuthException => "Код или ключ Ryuu недействителен. Получите новый код на сайте.",
         RyuuLimitException => e.Message,
+        HttpRequestException { StatusCode: { } code } => L.F("Ryuu: HTTP {0}. Повторите попытку позже.", (int)code),
+        HttpRequestException { InnerException: System.Net.Sockets.SocketException socket } => L.F("Не удалось связаться с Ryuu: {0}. Проверьте соединение.", socket.SocketErrorCode),
         HttpRequestException => "Не удалось связаться с Ryuu. Проверьте соединение и повторите попытку.",
         OperationCanceledException => "Ryuu не ответил вовремя. Повторите попытку.",
         _ => "Не удалось подключить Ryuu. Проверьте код и повторите попытку."

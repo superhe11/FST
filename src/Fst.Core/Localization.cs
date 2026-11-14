@@ -18,6 +18,22 @@ public static class Localization
     public static event Action? Changed;
     private static readonly Dictionary<string, string> English = new()
     {
+        ["Отменить бандл"] = "Cancel batch",
+        ["Отмена…"] = "Cancelling…",
+        ["Бандл отменён."] = "Batch cancelled.",
+        ["Установка пропущена: бандл отменён."] = "Installation skipped: the batch was cancelled.",
+        ["ожидание ответа Ryuu"] = "waiting for Ryuu",
+        ["получено {0} КБ"] = "received {0} KB",
+        ["Приложение {0} из {1} · {2} · прошло {3} с"] = "App {0} of {1} · {2} · {3} s elapsed",
+        ["Отмена запрошена. Текущая запись файлов будет завершена безопасно."] = "Cancellation requested. Any file writes in progress will finish safely.",
+        ["Установка пропущена: бандл остановлен из-за неполного отката."] = "Installation skipped: the batch stopped because rollback was incomplete.",
+        ["Бандл остановлен. Steam оставлен закрытым. {0}"] = "Batch stopped. Steam has been left closed. {0}",
+        ["Установка бандлов пока доступна только на Linux."] = "Bundle installation is currently available only on Linux.",
+        ["Бандл должен содержать от 1 до 200 приложений."] = "A bundle must contain between 1 and 200 apps.",
+        ["Ryuu: HTTP {0}. Повторите попытку позже."] = "Ryuu: HTTP {0}. Try again later.",
+        ["Не удалось связаться с Ryuu: {0}. Проверьте соединение."] = "Could not reach Ryuu: {0}. Check your connection.",
+        ["Бандл: {0}"] = "Bundle: {0}",
+        ["Бандл: установлено {0} из {1}."] = "Bundle: installed {0} of {1}.",
         ["Откат завершён не полностью. Резервная копия и диагностика: {0}"] = "Rollback was incomplete. Backup and diagnostics: {0}",
         ["Не удалось завершить Steam. Закройте его и повторите установку."] = "Steam could not be stopped. Close it and retry installation.",
         ["Перед установкой завершите Steam."] = "Close Steam before installing.",

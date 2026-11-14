@@ -99,6 +99,8 @@ foreach (var status in new[] { HttpStatusCode.Unauthorized, HttpStatusCode.Forbi
     catch (Exception e) when (e is RyuuAuthException or RyuuLimitException or HttpRequestException)
     {
         Check(status == HttpStatusCode.TooManyRequests ? e is RyuuLimitException : status == HttpStatusCode.ServiceUnavailable ? e is HttpRequestException : e is RyuuAuthException, "Ryuu HTTP state " + (int)status);
+        if (e is HttpRequestException http)
+            Check(http.StatusCode == status, "Ryuu HTTP failure retains status for safe diagnostics");
         Check(!e.Message.Contains(secret), "auth error does not expose key " + (int)status);
     }
 }
@@ -114,6 +116,59 @@ using (var client = new RyuuClient(new HttpClient(new FakeHandler(request =>
         throw new Exception("Expected HTML rejection");
     }
     catch (InvalidDataException) { Check(true, "Ryuu login HTML rejected before installation"); }
+}
+// ResponseHeadersRead must not leave a stalled response body outside the deadline.
+using (var client = new RyuuClient(new HttpClient(new AsyncHandler(async (_, ct) =>
+{
+    await Task.Delay(Timeout.Infinite, ct);
+    return new HttpResponseMessage(HttpStatusCode.OK);
+})), TimeSpan.FromMilliseconds(200)))
+{
+    try
+    {
+        await client.DownloadAsync("400", secret, Path.Combine(testRoot, "header-timeout.zip")).WaitAsync(TimeSpan.FromSeconds(5));
+        throw new Exception("Expected header timeout");
+    }
+    catch (OperationCanceledException) { Check(true, "download deadline bounds waiting for response headers"); }
+}
+foreach (var userCancel in new[] { false, true })
+{
+    var stream = new StallingDownloadStream();
+    using var cancellation = new CancellationTokenSource();
+    using var client = new RyuuClient(new HttpClient(new FakeHandler(_ =>
+        new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(stream) })),
+        userCancel ? TimeSpan.FromSeconds(10) : TimeSpan.FromMilliseconds(300));
+    var received = new List<long>();
+    var target = Path.Combine(testRoot, userCancel ? "cancelled-body.zip" : "timed-out-body.zip");
+    var pending = client.DownloadAsync("400", secret, target, cancellation.Token, received.Add);
+    if (userCancel)
+    {
+        await stream.Waiting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+    }
+    try
+    {
+        await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        throw new Exception("Expected stalled body cancellation");
+    }
+    catch (OperationCanceledException)
+    {
+        Check(cancellation.IsCancellationRequested == userCancel, "user cancellation and download deadline remain distinguishable");
+    }
+    Check(stream.Disposed && received.SequenceEqual(new long[] { 0, 1 }), "stalled response after a partial body is cancelled, reports bytes and disposes its stream");
+    using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+    {
+    }
+    File.Delete(target);
+    Check(!File.Exists(target), "cancelled download releases the partial archive for batch cleanup");
+}
+using (var client = new RyuuClient(new HttpClient(new FakeHandler(_ =>
+    new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[4096]) }))))
+{
+    var received = new List<long>();
+    var target = Path.Combine(testRoot, "download-progress.zip");
+    await client.DownloadAsync("400", secret, target, received: received.Add);
+    Check(received.First() == 0 && received.Last() == 4096 && new FileInfo(target).Length == 4096, "successful archive download reports response and received bytes");
 }
 if (args.Contains("--ryuu-live"))
 {
@@ -477,4 +532,48 @@ sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> reply) : 
 sealed class AsyncHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> reply) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => reply(request, cancellationToken);
+}
+
+
+sealed class StallingDownloadStream : Stream
+{
+    private bool prefix;
+    public bool Disposed
+    {
+        get; private set;
+    }
+    public TaskCompletionSource Waiting { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public override bool CanRead => true;
+    public override bool CanSeek => false;
+    public override bool CanWrite => false;
+    public override long Length => throw new NotSupportedException();
+    public override long Position
+    {
+        get => throw new NotSupportedException(); set => throw new NotSupportedException();
+    }
+    public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+    {
+        if (!prefix)
+        {
+            prefix = true;
+            buffer.Span[0] = 1;
+            return 1;
+        }
+        Waiting.TrySetResult();
+        await Task.Delay(Timeout.Infinite, ct);
+        return 0;
+    }
+    public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) => ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+    public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    public override void Flush()
+    {
+    }
+    protected override void Dispose(bool disposing)
+    {
+        Disposed = true;
+        base.Dispose(disposing);
+    }
 }
