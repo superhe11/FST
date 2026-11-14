@@ -4,7 +4,10 @@ public static class BatchReporting
 {
     public static void TryLog(Action write)
     {
-        try { write(); }
+        try
+        {
+            write();
+        }
         catch (Exception) { }
     }
 
