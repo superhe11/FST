@@ -6,6 +6,12 @@ namespace Fst.Core;
 
 public sealed record InstallPlan(string SteamRoot, string LuaDirectory, string DepotDirectory, bool AutoUpdate = true, bool MirrorManifests = true, string[]? AdditionalLuaDirectories = null);
 public sealed record InstallResult(string AppId, int LuaFiles, int ManifestFiles, string BackupDirectory);
+public abstract class IncompleteBatchRollbackException(string message, string backupDirectory, Exception innerException) : IOException(message, innerException)
+{
+    public string BackupDirectory { get; } = backupDirectory;
+}
+public sealed class IncompleteInstallRollbackException(string backupDirectory, Exception innerException)
+    : IncompleteBatchRollbackException("Откат завершён не полностью. Резервная копия: " + backupDirectory, backupDirectory, innerException);
 
 public static partial class ManifestInstaller
 {
@@ -75,19 +81,33 @@ public static partial class ManifestInstaller
                 var old = File.Exists(write.Path) ? Path.Combine(backup, changes.Count + ".bak") : null;
                 if (old != null)
                     File.Copy(write.Path, old);
-                changes.Add((write.Path, old));
                 AtomicWrite(write.Path, write.Bytes);
+                changes.Add((write.Path, old));
             }
             File.WriteAllText(Path.Combine(backup, "restore.json"), System.Text.Json.JsonSerializer.Serialize(changes.Select(c => new { target = c.Target, backup = c.Backup })));
         }
-        catch
+        catch (Exception failure)
         {
+            var errors = new List<Exception>();
             foreach (var change in changes.AsEnumerable().Reverse())
             {
-                if (change.Backup != null)
-                    AtomicWrite(change.Target, File.ReadAllBytes(change.Backup));
-                else if (File.Exists(change.Target))
-                    File.Delete(change.Target);
+                try
+                {
+                    if (change.Backup != null)
+                        AtomicWrite(change.Target, File.ReadAllBytes(change.Backup));
+                    else if (File.Exists(change.Target))
+                        File.Delete(change.Target);
+                }
+                catch (Exception error) { errors.Add(new IOException("Could not restore: " + change.Target, error)); }
+            }
+            if (errors.Count > 0)
+            {
+                try
+                {
+                    File.WriteAllText(Path.Combine(backup, "restore.json"), System.Text.Json.JsonSerializer.Serialize(changes.Select(c => new { target = c.Target, backup = c.Backup })));
+                }
+                catch (Exception error) { errors.Add(error); }
+                throw new IncompleteInstallRollbackException(backup, new AggregateException(new[] { failure }.Concat(errors)));
             }
             throw;
         }
