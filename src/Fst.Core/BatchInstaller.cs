@@ -1,13 +1,13 @@
-using Fst.Core;
+using L = Fst.Core.Localization;
 
-namespace Fst.App;
+namespace Fst.Core;
 
 public sealed record BatchItem(string AppId, bool Installed, string? Error = null);
-internal sealed record BatchResult(BatchItem[] Items, string? LifecycleError, bool Cancelled = false);
+public sealed record BatchResult(BatchItem[] Items, string? LifecycleError, bool Cancelled = false);
 
-internal static class BatchInstaller
+public static class BatchInstaller
 {
-    internal static string[] Validate(string[] ids)
+    public static string[] Validate(string[] ids)
     {
         if (ids.Length is < 1 or > 200)
             throw new InvalidDataException(L.T("Бандл должен содержать от 1 до 200 приложений."));
@@ -18,7 +18,7 @@ internal static class BatchInstaller
 
     // Downloads finish before Steam is stopped. Each deployment keeps its own
     // rollback/receipt; failure never rolls back an earlier successful item.
-    internal static async Task<BatchResult> RunAsync(string[] ids, Func<string, CancellationToken, Task<string>> download,
+    public static async Task<BatchResult> RunAsync(string[] ids, Func<string, CancellationToken, Task<string>> download,
         Func<Task> stop, Action<string, string> install, Action start, bool restart,
         Action<string, string?> progress, Func<Exception, string> error, CancellationToken ct = default)
     {
@@ -69,7 +69,7 @@ internal static class BatchInstaller
                     install(archive, id);
                     results[id] = new(id, true);
                 }
-                catch (IncompleteRollbackException e)
+                catch (IncompleteBatchRollbackException e)
                 {
                     var message = error(e);
                     results[id] = new(id, false, message);

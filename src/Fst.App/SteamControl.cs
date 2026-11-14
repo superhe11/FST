@@ -38,6 +38,21 @@ public static class SteamControl
         await ShutdownAsync(exe, TimeSpan.FromSeconds(45));
         Start(exe);
     }
+    internal static Task StopForBatchAsync(Settings settings)
+    {
+        var exe = Path.Combine(settings.SteamRoot, "steam.exe");
+        if (!File.Exists(exe))
+            throw new FileNotFoundException("steam.exe не найден.");
+        return ShutdownAsync(exe, TimeSpan.FromSeconds(45), L.T("Не удалось завершить Steam. Закройте его и повторите установку."));
+    }
+    internal static void StartAfterBatch(Settings settings)
+    {
+        var exe = Path.Combine(settings.SteamRoot, "steam.exe");
+        if (!File.Exists(exe))
+            throw new FileNotFoundException("steam.exe не найден.");
+        EnsureDebugMarker(settings);
+        Start(exe);
+    }
     private static void Start(string exe) => Process.Start(new ProcessStartInfo(exe, "-cef-enable-debugging") { UseShellExecute = true });
     private static bool Running(string exe) => Process.GetProcessesByName("steam").Any(p => { using (p) { try { return string.Equals(p.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase); } catch { return true; } } });
     private static async Task WaitForExitAsync(string exe, TimeSpan timeout, CancellationToken ct = default)

@@ -5,6 +5,7 @@ using Fst.Core;
 namespace Fst.App;
 
 public sealed record Job(string State, string Message, BatchItem[]? Items = null, BatchProgress? Progress = null, bool CanCancel = false, bool CancellationRequested = false);
+public sealed record BatchStatus(string JobId, Job Job);
 public sealed class JobService(Settings settings, RyuuSession session, Action<string> notify, Action connect)
 {
     private readonly ConcurrentDictionary<string, Job> jobs = new();
@@ -16,7 +17,15 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
     {
         if (!jobs.TryGetValue(jobId, out var job))
             throw new InvalidOperationException(L.T("Задание не найдено."));
-        return activeBatch is { } batch && batch.JobId == jobId ? batch.Snapshot(job) : job;
+        if (job.State is not ("complete" or "partial" or "failed" or "cancelled") && activeBatch is { } batch && batch.JobId == jobId && batch.Snapshot() is { } snapshot)
+            return job with
+            {
+                Message = snapshot.Message,
+                Progress = snapshot.Progress,
+                CanCancel = snapshot.CanCancel,
+                CancellationRequested = snapshot.CancellationRequested
+            };
+        return job;
     }
     public bool IsBusy => gate.CurrentCount == 0;
     private sealed class Lease(SemaphoreSlim semaphore) : IDisposable
@@ -135,24 +144,15 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
                     }, operation.Token);
                 operation.Complete();
                 var count = result.Items.Count(i => i.Installed);
-                var state = result.Cancelled ? "cancelled" : count == 0 ? "failed" : count == ids.Length && result.LifecycleError == null ? "complete" : "partial";
-                var message = L.F("Бандл: установлено {0} из {1}.", count, ids.Length);
-                if (result.Cancelled)
-                    message = L.T("Бандл отменён.") + "\n" + message;
-                if (result.LifecycleError != null)
-                    message += "\n" + result.LifecycleError;
-                foreach (var item in result.Items.Where(i => !i.Installed))
-                    message += $"\n{item.AppId}: {item.Error}";
-                jobs[jobId] = new(state, message, result.Items);
-                Log("{0}", message);
-                notify(message);
+                var (state, message) = BatchReporting.Format(result, ids.Length);
+                BatchReporting.Publish(() => jobs[jobId] = new(state, message, result.Items),
+                    () => Log("{0}", message), () => notify(message));
             }
             catch (Exception e)
             {
                 var message = L.T(e.Message);
-                jobs[jobId] = new("failed", message);
-                Log("Ошибка установки: {0}", message);
-                notify(message);
+                BatchReporting.Publish(() => jobs[jobId] = new("failed", message),
+                    () => Log("Ошибка установки: {0}", message), () => notify(message));
             }
             finally
             {
@@ -170,6 +170,6 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
             jobId
         };
     }
-    public static void Log(string template, params object?[] args) => AppLog.Write(template, args);
+    public static void Log(string template, params object?[] args) => BatchReporting.TryLog(() => AppLog.Write(template, args));
     public static void RefreshLogLanguage() => AppLog.Rebuild();
 }

@@ -28,6 +28,7 @@ public static class Localization
         ["Отмена запрошена. Текущая запись файлов будет завершена безопасно."] = "Cancellation requested. Any file writes in progress will finish safely.",
         ["Установка пропущена: бандл остановлен из-за неполного отката."] = "Installation skipped: the batch stopped because rollback was incomplete.",
         ["Бандл остановлен. Steam оставлен закрытым. {0}"] = "Batch stopped. Steam has been left closed. {0}",
+        ["Steam оставлен закрытым."] = "Steam has been left closed.",
         ["Установка бандлов пока доступна только на Linux."] = "Bundle installation is currently available only on Linux.",
         ["Бандл должен содержать от 1 до 200 приложений."] = "A bundle must contain between 1 and 200 apps.",
         ["Ryuu: HTTP {0}. Повторите попытку позже."] = "Ryuu: HTTP {0}. Try again later.",
