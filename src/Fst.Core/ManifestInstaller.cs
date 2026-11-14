@@ -6,11 +6,12 @@ namespace Fst.Core;
 
 public sealed record InstallPlan(string SteamRoot, string LuaDirectory, string DepotDirectory, bool AutoUpdate = true, bool MirrorManifests = true, string[]? AdditionalLuaDirectories = null);
 public sealed record InstallResult(string AppId, int LuaFiles, int ManifestFiles, string BackupDirectory);
-public sealed class IncompleteInstallRollbackException(string backupDirectory, Exception innerException)
-    : IOException("Откат завершён не полностью. Резервная копия: " + backupDirectory, innerException)
+public abstract class IncompleteBatchRollbackException(string message, string backupDirectory, Exception innerException) : IOException(message, innerException)
 {
     public string BackupDirectory { get; } = backupDirectory;
 }
+public sealed class IncompleteInstallRollbackException(string backupDirectory, Exception innerException)
+    : IncompleteBatchRollbackException("Откат завершён не полностью. Резервная копия: " + backupDirectory, backupDirectory, innerException);
 
 public static partial class ManifestInstaller
 {

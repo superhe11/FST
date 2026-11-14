@@ -5,6 +5,7 @@ using Fst.Core;
 namespace Fst.App;
 
 public sealed record Job(string State, string Message, BatchItem[]? Items = null, BatchProgress? Progress = null, bool CanCancel = false, bool CancellationRequested = false);
+public sealed record BatchStatus(string JobId, Job Job);
 public sealed class JobService(Settings settings, RyuuSession session, Action<string> notify, Action connect, Action<string>? batchCompleted = null)
 {
     private readonly ConcurrentDictionary<string, Job> jobs = new();
@@ -16,7 +17,15 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
     {
         if (!jobs.TryGetValue(jobId, out var job))
             throw new InvalidOperationException(L.T("Задание не найдено."));
-        return activeBatch is { } batch && batch.JobId == jobId ? batch.Snapshot(job) : job;
+        if (job.State is not ("complete" or "partial" or "failed" or "cancelled") && activeBatch is { } batch && batch.JobId == jobId && batch.Snapshot() is { } snapshot)
+            return job with
+            {
+                Message = snapshot.Message,
+                Progress = snapshot.Progress,
+                CanCancel = snapshot.CanCancel,
+                CancellationRequested = snapshot.CancellationRequested
+            };
+        return job;
     }
     // True during a game install or a Steam rollback: both change Steam, so Lua removal and uninstall wait for them.
     public static bool InstallationActive => SteamControl.Busy;
@@ -41,7 +50,7 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
     }
     private object StartBatch(string[] ids)
     {
-        ids = WindowsBatchInstaller.Validate(ids);
+        ids = BatchInstaller.Validate(ids);
         var authKey = session.RequireKey();
         SteamControl.Begin(SteamControl.Install);
         if (!gate.Wait(0))
@@ -70,7 +79,7 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
                 if (LuaLoader.Broken(settings.SteamRoot, LoaderStateFile))
                     throw new InvalidOperationException(LuaLoader.MissingMessage);
                 using var client = new RyuuClient();
-                var result = await WindowsBatchInstaller.RunAsync(ids, async (id, ct) =>
+                var result = await BatchInstaller.RunAsync(ids, async (id, ct) =>
                 {
                     var archive = Path.Combine(directory, id + ".zip");
                     await client.DownloadAsync(id, authKey, archive, ct, operation.Received);
@@ -87,36 +96,17 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
                 operation.Complete();
                 var count = result.Items.Count(i => i.Installed);
                 var unsupported = count > 0 ? await UnsupportedSteamWarningAsync(settings) : null;
-                var state = result.Cancelled ? "cancelled" : count == 0 ? "failed" : count == ids.Length && result.LifecycleError == null ? "complete" : "partial";
-                var message = L.F("Бандл: установлено {0} из {1}.", count, ids.Length);
-                if (result.Cancelled)
-                    message = L.T("Бандл отменён.") + "\n" + message;
-                if (result.LifecycleError != null)
-                    message += "\n" + result.LifecycleError;
-                if (count > 0 && !settings.RestartAfterInstall)
-                    message += "\n" + L.T("Steam оставлен закрытым.");
-                if (unsupported != null)
-                    message += "\n" + unsupported;
-                foreach (var item in result.Items.Where(i => !i.Installed))
-                    message += $"\n{item.AppId}: {item.Error}";
-                jobs[jobId] = new(state, message, result.Items);
-                Log("{0}", message);
-                if (batchCompleted != null)
-                    batchCompleted(message);
-                else
-                    notify(message);
+                var (state, message) = BatchReporting.Format(result, ids.Length, !settings.RestartAfterInstall, unsupported);
+                BatchReporting.Publish(() => jobs[jobId] = new(state, message, result.Items),
+                    () => Log("{0}", message), () => (batchCompleted ?? notify)(message));
             }
             catch (Exception e)
             {
                 operation.Complete();
                 var cancelled = e is OperationCanceledException && operation.Token.IsCancellationRequested;
                 var message = cancelled ? L.T("Бандл отменён.") : Error(e);
-                jobs[jobId] = new(cancelled ? "cancelled" : "failed", message);
-                Log("{0}", message);
-                if (batchCompleted != null)
-                    batchCompleted(message);
-                else
-                    notify(message);
+                BatchReporting.Publish(() => jobs[jobId] = new(cancelled ? "cancelled" : "failed", message),
+                    () => Log("{0}", message), () => (batchCompleted ?? notify)(message));
             }
             finally
             {
@@ -236,5 +226,5 @@ public sealed class JobService(Settings settings, RyuuSession session, Action<st
         Log(LuaLoader.UnsupportedMessage, string.Join(", ", files));
         return L.F(LuaLoader.UnsupportedMessage, string.Join(", ", files));
     }
-    public static void Log(string template, params object?[] args) => AppLog.Write(template, args);
+    public static void Log(string template, params object?[] args) => BatchReporting.TryLog(() => AppLog.Write(template, args));
 }

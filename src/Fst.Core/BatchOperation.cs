@@ -1,11 +1,13 @@
-namespace Fst.App;
+using L = Fst.Core.Localization;
+
+namespace Fst.Core;
 
 public sealed record BatchProgress(int Current, int Total, string? AppId, string Phase, int ElapsedSeconds, long ReceivedBytes);
-public sealed record BatchStatus(string JobId, Job Job);
+public sealed record BatchSnapshot(string Message, BatchProgress Progress, bool CanCancel, bool CancellationRequested);
 
 // A single owner for cancellation, progress and CTS disposal. Snapshot and
 // Cancel may run on the desktop/CEF threads while the worker changes phases.
-internal sealed class BatchOperation(string jobId, string[] ids, TimeProvider? timeProvider = null) : IDisposable
+public sealed class BatchOperation(string jobId, string[] ids, TimeProvider? timeProvider = null) : IDisposable
 {
     private readonly object sync = new();
     private readonly CancellationTokenSource cancellation = new();
@@ -47,12 +49,12 @@ internal sealed class BatchOperation(string jobId, string[] ids, TimeProvider? t
             receivedBytes = bytes;
         }
     }
-    public Job Snapshot(Job job)
+    public BatchSnapshot? Snapshot()
     {
         lock (sync)
         {
-            if (finished || job.State is "complete" or "partial" or "failed" or "cancelled")
-                return job;
+            if (finished)
+                return null;
             var elapsed = (int)clock.GetElapsedTime(phaseStarted).TotalSeconds;
             var current = appId == null ? ids.Length : Array.IndexOf(ids, appId) + 1;
             var detail = phase switch
@@ -69,13 +71,8 @@ internal sealed class BatchOperation(string jobId, string[] ids, TimeProvider? t
                 message += "\nAppID: " + appId;
             if (cancellation.IsCancellationRequested)
                 message += "\n" + L.T("Отмена запрошена. Текущая запись файлов будет завершена безопасно.");
-            return job with
-            {
-                Message = message,
-                Progress = new(current, ids.Length, appId, phase, elapsed, receivedBytes),
-                CanCancel = phase != "restarting" && !cancellation.IsCancellationRequested,
-                CancellationRequested = cancellation.IsCancellationRequested
-            };
+            return new(message, new(current, ids.Length, appId, phase, elapsed, receivedBytes),
+                phase != "restarting" && !cancellation.IsCancellationRequested, cancellation.IsCancellationRequested);
         }
     }
     public void Complete()

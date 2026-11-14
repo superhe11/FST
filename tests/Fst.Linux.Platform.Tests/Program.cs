@@ -304,14 +304,14 @@ try
     {
         operation.Update("downloading", "40");
         clock.Seconds = 40;
-        var snapshot = operation.Snapshot(new Job("downloading", ""));
+        var snapshot = operation.Snapshot()!;
         Check(snapshot.Progress is { Current: 2, Total: 2, AppId: "40", ElapsedSeconds: 40, Phase: "downloading" } && snapshot.CanCancel && snapshot.Message.Contains("40"),
             "batch progress includes app index, total, AppID and elapsed waiting time");
         operation.Received(2048);
-        snapshot = operation.Snapshot(new Job("downloading", ""));
+        snapshot = operation.Snapshot()!;
         Check(snapshot.Progress is { Phase: "receiving", ReceivedBytes: 2048, ElapsedSeconds: 40 }, "body progress preserves the app timer and reports downloaded bytes");
         Check(operation.Cancel() && operation.Token.IsCancellationRequested && operation.Cancel(), "batch cancellation is idempotent");
-        snapshot = operation.Snapshot(new Job("downloading", ""));
+        snapshot = operation.Snapshot()!;
         Check(!snapshot.CanCancel && snapshot.CancellationRequested, "cancelling job remains observable until safe completion");
         operation.Update("restarting", null);
         Check(!operation.Cancel(), "Steam finalization cannot be cancelled halfway through launch");

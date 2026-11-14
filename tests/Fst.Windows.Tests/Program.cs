@@ -43,14 +43,14 @@ foreach (var invalid in new[] { Array.Empty<string>(), new[] { "10", "../20" }, 
 {
     try
     {
-        WindowsBatchInstaller.Validate(invalid);
+        BatchInstaller.Validate(invalid);
         throw new Exception("Expected invalid batch rejection");
     }
     catch (InvalidDataException) { Check(true, "invalid batch rejected before side effects"); }
 }
-Check(WindowsBatchInstaller.Validate(["10", "20", "10"]).SequenceEqual(["10", "20"]), "batch removes duplicate IDs in order");
+Check(BatchInstaller.Validate(["10", "20", "10"]).SequenceEqual(["10", "20"]), "batch removes duplicate IDs in order");
 var events = new List<string>();
-var batch = await WindowsBatchInstaller.RunAsync(["10", "20", "30", "40"], (id, _) =>
+var batch = await BatchInstaller.RunAsync(["10", "20", "30", "40"], (id, _) =>
 {
     events.Add("download " + id);
     if (id == "20")
@@ -65,7 +65,7 @@ var batch = await WindowsBatchInstaller.RunAsync(["10", "20", "30", "40"], (id, 
 Check(events.SequenceEqual(["download 10", "download 20", "download 30", "download 40", "stop", "install 10", "install 30", "install 40", "restart"]), "downloads finish first and mixed results cause one restart");
 Check(batch.Items.Select(i => i.Installed).SequenceEqual([true, false, false, true]), "batch retains successful items around failures");
 events.Clear();
-batch = await WindowsBatchInstaller.RunAsync(["10", "20", "30"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, id) =>
+batch = await BatchInstaller.RunAsync(["10", "20", "30"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, id) =>
 {
     events.Add("install " + id);
     if (id == "20")
@@ -75,7 +75,7 @@ Check(events.SequenceEqual(["install 10", "install 20"]) && batch.LifecycleError
 using (var cancellation = new CancellationTokenSource())
 {
     events.Clear();
-    batch = await WindowsBatchInstaller.RunAsync(["10", "20"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, id) =>
+    batch = await BatchInstaller.RunAsync(["10", "20"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, id) =>
     {
         events.Add("install " + id);
         cancellation.Cancel();
@@ -83,25 +83,25 @@ using (var cancellation = new CancellationTokenSource())
     Check(batch.Cancelled && batch.Items[0].Installed && !batch.Items[1].Installed && events.SequenceEqual(["install 10", "restart"]), "cancellation completes current install and restarts once");
 }
 events.Clear();
-batch = await WindowsBatchInstaller.RunAsync(["10"], (_, _) => Task.FromException<string>(new IOException("offline")),
+batch = await BatchInstaller.RunAsync(["10"], (_, _) => Task.FromException<string>(new IOException("offline")),
     () => { events.Add("stop"); return Task.CompletedTask; }, (_, _) => events.Add("install"), () => events.Add("restart"), true, (_, _) => { }, e => e.Message, CancellationToken.None);
 Check(!batch.Items[0].Installed && events.Count == 0, "failed downloads do not install or restart Steam");
-batch = await WindowsBatchInstaller.RunAsync(["10"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, _) => { },
+batch = await BatchInstaller.RunAsync(["10"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, _) => { },
     () => throw new IOException("restart failed"), true, (_, _) => { }, e => e.Message, CancellationToken.None);
 Check(batch.Items[0].Installed && batch.LifecycleError == "restart failed", "restart error preserves the successful install result");
 events.Clear();
-batch = await WindowsBatchInstaller.RunAsync(["10", "20"], (id, _) => Task.FromResult(id),
+batch = await BatchInstaller.RunAsync(["10", "20"], (id, _) => Task.FromResult(id),
     () => Task.FromException(new IOException("shutdown failed")), (_, _) => events.Add("install"),
     () => events.Add("start"), true, (_, _) => { }, e => e.Message, CancellationToken.None);
 Check(batch.Items.All(i => !i.Installed) && batch.LifecycleError == "shutdown failed" && events.Count == 0, "failed shutdown prevents every installation and Steam restart");
 events.Clear();
-batch = await WindowsBatchInstaller.RunAsync(["10"], (id, _) => Task.FromResult(id), () => Task.CompletedTask,
+batch = await BatchInstaller.RunAsync(["10"], (id, _) => Task.FromResult(id), () => Task.CompletedTask,
     (_, _) => events.Add("install"), () => events.Add("start"), false, (_, _) => { }, e => e.Message, CancellationToken.None);
 Check(batch.Items[0].Installed && events.SequenceEqual(["install"]), "disabled restart leaves Steam closed after installation");
 using (var cancellation = new CancellationTokenSource())
 {
     events.Clear();
-    batch = await WindowsBatchInstaller.RunAsync(["10", "20"], (id, _) =>
+    batch = await BatchInstaller.RunAsync(["10", "20"], (id, _) =>
     {
         events.Add("download " + id);
         cancellation.Cancel();
@@ -109,6 +109,25 @@ using (var cancellation = new CancellationTokenSource())
     }, () => { events.Add("stop"); return Task.CompletedTask; }, (_, _) => events.Add("install"),
         () => events.Add("start"), true, (_, _) => { }, e => e.Message, cancellation.Token);
     Check(batch.Cancelled && events.SequenceEqual(["download 10"]), "cancelling downloads leaves Steam untouched and skips remaining requests");
+}
+var lockedLog = Path.Combine(root, "log-events.jsonl");
+using (var logLock = new FileStream(lockedLog, FileMode.Create, FileAccess.Write, FileShare.None))
+{
+    var installedFile = Path.Combine(root, "installed.txt");
+    var restarted = false;
+    batch = await BatchInstaller.RunAsync(["10"], (id, _) => Task.FromResult(id), () => Task.CompletedTask, (_, _) =>
+    {
+        File.WriteAllText(installedFile, "installed");
+        BatchReporting.TryLog(() => File.AppendAllText(lockedLog, "install"));
+    }, () => restarted = true, true, (_, _) => { }, e => e.Message);
+    Check(File.Exists(installedFile) && batch.Items[0].Installed && restarted, "locked log does not change successful install or suppress Steam restart");
+    var recovery = new BatchResult([new("10", false, "rollback failed")], "Recovery backup: " + root);
+    var (state, message) = BatchReporting.Format(recovery, 1);
+    string? saved = null, notification = null;
+    BatchReporting.Publish(() => saved = state + ":" + message,
+        () => File.AppendAllText(lockedLog, "result"), () => notification = message);
+    Check(saved != null && saved.StartsWith("failed:") && saved.Contains(root) && notification == message && notification.Contains(root),
+        "locked final log preserves result and delivers recovery backup path");
 }
 var builtIn = Path.Combine(root, "config", "stplug-in");
 Check(settings.Plan().AdditionalLuaDirectories!.Contains(builtIn), "fresh Steam with no TOML includes BetterSteamTools Lua path");
