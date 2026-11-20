@@ -3,5 +3,6 @@ Type=Application
 Name=Fast Steam Tools
 Exec=fst --show
 Icon=fst
+StartupWMClass=fst
 Terminal=false
 Categories=Game;Utility;

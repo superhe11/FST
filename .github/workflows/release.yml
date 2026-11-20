@@ -79,5 +79,5 @@ jobs:
             gh release create "$RELEASE_TAG" "${args[@]}"
           fi
           gh release upload "$RELEASE_TAG" release-assets/* --clobber
-          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 7
+          test "$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')" = 8
           gh release edit "$RELEASE_TAG" --draft=false

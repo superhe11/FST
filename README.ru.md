@@ -43,7 +43,16 @@ FST использует следующие проекты и сервисы:
 
 Для сохранения входа нужно запущенное и разблокированное хранилище паролей, например GNOME Keyring.
 
-Установка из архива и дополнительные настройки — в [гайде для Linux](packaging/linux/README-LINUX.md).
+### Fedora и дистрибутивы на её основе
+
+Для систем x86_64 с DNF и нативным Steam. Установите SLSsteam и lumalinux по инструкции выше и скачайте пакет `fast-steam-tools-*.x86_64.rpm` из [релизов](https://github.com/superhe11/FST/releases). Установите RPM и запустите FST из папки загрузок.
+
+```bash
+sudo dnf install ./fast-steam-tools-*.x86_64.rpm
+fst
+```
+
+Установка из архива, требования к рабочему столу и настройка Steam описаны в [гайде для Linux](packaging/linux/README-LINUX.md).
 
 ## Как пользоваться
 
@@ -73,6 +82,12 @@ FST работает в трее. Нажмите на его значок, чт�
 sudo pacman -R fast-steam-tools-bin
 ```
 
+На Fedora удалите пакет через DNF.
+
+```bash
+sudo dnf remove fast-steam-tools
+```
+
 ## Сборка из исходников
 
 Нужен .NET 9 SDK. Из корня репозитория:
@@ -86,5 +101,7 @@ powershell -NoProfile -File tools/Build-Setup.ps1
 # Linux
 bash tools/Build-Linux.sh
 ```
+
+Для сборки RPM на Fedora установите `rpm-build` и после сборки для Linux выполните `bash tools/Build-Fedora.sh`.
 
 Готовые файлы появятся в `release/`.

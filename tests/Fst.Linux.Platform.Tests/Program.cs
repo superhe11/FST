@@ -348,6 +348,75 @@ try
 
     if (OperatingSystem.IsLinux())
     {
+        var steamRoot = Path.Combine(sandbox, "native steam");
+        Directory.CreateDirectory(steamRoot);
+        var steamScript = Path.Combine(steamRoot, "steam.sh");
+        File.WriteAllText(steamScript, "#!/bin/sh\n");
+        var wrapper = Path.Combine(sandbox, "steam");
+        File.WriteAllText(wrapper, "#!/bin/sh\n");
+        File.SetUnixFileMode(wrapper, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        var launchSettings = new Settings { SteamRoot = steamRoot, SteamLauncher = wrapper };
+        var launchEnvironment = new Dictionary<string, string>
+        {
+            ["PATH"] = sandbox + ":" + Environment.GetEnvironmentVariable("PATH"),
+            ["LD_AUDIT"] = "/test/audit.so",
+            ["LD_PRELOAD"] = "/test/preload.so"
+        };
+        var previousEnvironment = launchEnvironment.Keys.ToDictionary(key => key, Environment.GetEnvironmentVariable);
+        try
+        {
+            foreach (var (key, value) in launchEnvironment)
+                Environment.SetEnvironmentVariable(key, value);
+            var legacy = JsonSerializer.Deserialize<Settings>("{}")!;
+            Check(legacy.UseSteamWrapper, "existing settings retain wrapper support by default");
+            var wrapped = SteamControl.StartInfo(launchSettings);
+            Check(wrapped.FileName == wrapper && wrapped.ArgumentList.SequenceEqual(new[] { "-cef-enable-debugging" }) &&
+                wrapped.Environment["LD_AUDIT"] == "/test/audit.so" && wrapped.Environment["LD_PRELOAD"] == "/test/preload.so",
+                "configured wrapper receives the inherited loader environment without injected replacements");
+
+            launchSettings.SlsLibrary = Path.Combine(steamRoot, "SLSsteam.so");
+            launchSettings.LumaLibrary = Path.Combine(steamRoot, "liblumalinux.so");
+            File.WriteAllText(launchSettings.SlsLibrary, "fixture");
+            File.WriteAllText(launchSettings.LumaLibrary, "fixture");
+            var loader = Path.Combine(steamRoot, "library-inject.so");
+            File.WriteAllText(loader, "");
+            launchSettings.SteamLauncher = Path.Combine(sandbox, "missing-wrapper");
+            var fallback = SteamControl.StartInfo(launchSettings);
+            Check(fallback.FileName == "steam" &&
+                fallback.Environment["LD_AUDIT"] == launchSettings.SlsLibrary + ":/test/audit.so" &&
+                fallback.Environment["LD_PRELOAD"] == launchSettings.LumaLibrary + ":/test/preload.so",
+                "legacy fallback retains PATH resolution, selected libraries and inherited loaders");
+
+            launchSettings.SteamLauncher = wrapper;
+            launchSettings.UseSteamWrapper = false;
+            var expectedLauncher = File.Exists("/usr/bin/steam") ? "/usr/bin/steam" : steamScript;
+            var integrated = SteamControl.StartInfo(launchSettings);
+            Check(integrated.FileName == expectedLauncher && integrated.ArgumentList.SequenceEqual(new[] { "-cef-enable-debugging" }) &&
+                integrated.Environment["LD_AUDIT"] == launchSettings.SlsLibrary + ":/test/audit.so" &&
+                integrated.Environment["LD_PRELOAD"] == launchSettings.LumaLibrary + ":/test/preload.so",
+                "explicit native mode bypasses the wrapper while preserving selected and inherited libraries");
+            var saved = JsonSerializer.Deserialize<Settings>(JsonSerializer.Serialize(launchSettings))!;
+            Check(!saved.UseSteamWrapper && saved.SteamLauncher == wrapper,
+                "native mode survives settings round trip and preserves the wrapper path");
+            File.WriteAllText(loader, "fixture");
+            Check(SteamControl.StartInfo(launchSettings).Environment["LD_AUDIT"] == loader + ":" + launchSettings.SlsLibrary + ":/test/audit.so",
+                "nonempty injector remains first and existing auditors remain last");
+            var shutdown = SteamControl.NativeStartInfo(launchSettings, "-shutdown");
+            Check(shutdown.FileName == expectedLauncher && shutdown.ArgumentList.SequenceEqual(new[] { "-shutdown" }) &&
+                shutdown.Environment["LD_AUDIT"] == "/test/audit.so" && shutdown.Environment["LD_PRELOAD"] == "/test/preload.so",
+                "native shutdown bypasses PATH and preserves the caller environment");
+            File.Delete(launchSettings.SlsLibrary);
+            File.Delete(launchSettings.LumaLibrary);
+            var missing = SteamControl.StartInfo(launchSettings);
+            Check(missing.Environment["LD_AUDIT"] == "/test/audit.so" && missing.Environment["LD_PRELOAD"] == "/test/preload.so",
+                "missing selected libraries leave inherited loader settings intact");
+        }
+        finally
+        {
+            foreach (var (key, value) in previousEnvironment)
+                Environment.SetEnvironmentVariable(key, value);
+        }
+
         // Exercise the process guard without sending a shutdown request to any
         // real Steam instance belonging to the user running these tests.
         var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Cannot locate the test host.");
