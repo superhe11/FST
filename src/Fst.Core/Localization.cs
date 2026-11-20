@@ -76,6 +76,7 @@ public static class Localization
         ["Подключить Ryuu"] = "Connect Ryuu",
         ["Открыть логи"] = "Open logs",
         ["Логи"] = "Logs",
+        ["Использовать установленную обёртку Steam"] = "Use installed Steam wrapper",
         ["Перезапустить Steam"] = "Restart Steam",
         ["Выход"] = "Exit",
         ["Подключить"] = "Connect",

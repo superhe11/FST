@@ -19,7 +19,7 @@ From this checkout:
 
 Steam's first launch downloads its client. Sign in using a dedicated test account. Use Firefox **inside the sandbox** for browser login flows; callback localhost belongs to the container. Right-click the desktop for Openbox's menu; a terminal opens at startup. There is no host keyring integration; initialize/unlock the sandbox keyring if you want FST to remember sign-in.
 
-FST detects the image's SLSsteam and lumalinux libraries. The image also installs `steamidra_lite.py` under `/usr/lib/lumalinux/tools/`, from the same release tag as `liblumalinux.so`; FST discovers it next to that library. Recreate older sandbox images that only contain the shared library before testing game deployment. The `steam` command enables CEF debugging; use FST's Steam restart button to launch Steam with the loaders. `check-cef` is expected to fail until the Steam client has finished its initial updates and started its web helper. The debugging port 8080 is never published to the host.
+FST detects the image's SLSsteam and lumalinux libraries. The image also installs `steamidra_lite.py` under `/usr/lib/lumalinux/tools/`, from the same release tag as `liblumalinux.so`. FST discovers it next to that library. Recreate older sandbox images that only contain the shared library before testing game deployment. The `steam` command enables CEF debugging. FST's **Restart Steam** button uses the configured wrapper preference. `check-cef` is expected to fail until the Steam client has finished its initial updates and started its web helper. The debugging port 8080 is never published to the host.
 
 ## Everyday commands
 

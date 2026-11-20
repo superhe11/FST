@@ -28,6 +28,9 @@ internal static class SelfTests
         {
             Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(sandbox, "config"));
             Environment.SetEnvironmentVariable("XDG_DATA_HOME", Path.Combine(sandbox, "data"));
+            Check(DesktopApp.PackageRemovalCommand("/usr/libexec/fast-steam-tools/") == "sudo dnf remove fast-steam-tools", "Fedora RPM removal uses DNF");
+            Check(DesktopApp.PackageRemovalCommand("/opt/fst/") == "sudo pacman -R fast-steam-tools-bin", "Arch package removal uses pacman");
+            Check(DesktopApp.PackageRemovalCommand(Path.Combine(Settings.DataRoot, "app")) == null, "per-user installs retain in-app removal");
             Check(LumaBackend.FindTool(new Settings()).EndsWith("steamidra_lite.py"), "tool discovery works before libraries are configured");
             var tool = Path.Combine(sandbox, "sls", "tools", "steamidra_lite.py");
             Directory.CreateDirectory(Path.GetDirectoryName(tool)!);

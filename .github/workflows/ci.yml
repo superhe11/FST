@@ -128,13 +128,30 @@ jobs:
       - name: Build Linux artifacts
         run: bash tools/Build-Linux.sh
 
-      - name: Verify packaged Linux backend
+      - name: Verify Arch package
         run: bash tools/Test-Linux-Package.sh
+
+      - name: Build the RPM on Fedora
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=$PWD,target=/workspace,readonly" \
+            --mount "type=bind,source=$PWD/release,target=/workspace/release" \
+            --workdir /workspace registry.fedoraproject.org/fedora:44 bash -euc '
+              dnf -y install rpm-build
+              bash tools/Build-Fedora.sh
+            '
+
+      - name: Test the RPM in a clean Fedora container
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=$PWD,target=/workspace,readonly" \
+            --workdir /workspace registry.fedoraproject.org/fedora:44 bash tools/Test-Fedora-Package.sh
 
       - name: Verify package checksums
         run: |
           cd release
           test -s SHA256SUMS-linux.txt
+          sha256sum -- fast-steam-tools-*.rpm >> SHA256SUMS-linux.txt
           sha256sum --check SHA256SUMS-linux.txt
 
       - uses: actions/upload-artifact@v7.0.2
@@ -142,6 +159,7 @@ jobs:
           name: fst-linux-x86_64
           path: |
             release/*.pkg.tar.zst
+            release/*.rpm
             release/*.tar.gz
             release/PKGBUILD
             release/SHA256SUMS-linux.txt

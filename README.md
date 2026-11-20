@@ -43,7 +43,16 @@ For native Steam installed through pacman/AUR on x86_64. Flatpak Steam is not su
 
 Saving your sign-in requires a running, unlocked password keyring, such as GNOME Keyring.
 
-For installation from the archive and additional settings, see the [Linux guide](packaging/linux/README-LINUX.md).
+### Fedora and Fedora-based desktops
+
+For x86_64 systems with DNF and native Steam. Use the same SLSsteam and lumalinux setup linked above, then download the `fast-steam-tools-*.x86_64.rpm` asset from [Releases](https://github.com/superhe11/FST/releases). Install the RPM and launch FST from the download folder.
+
+```bash
+sudo dnf install ./fast-steam-tools-*.x86_64.rpm
+fst
+```
+
+For installation from the archive, desktop requirements, and Steam setup, see the [Linux guide](packaging/linux/README-LINUX.md).
 
 ## Usage
 
@@ -73,6 +82,12 @@ On Arch Linux:
 sudo pacman -R fast-steam-tools-bin
 ```
 
+On Fedora, remove the RPM with DNF.
+
+```bash
+sudo dnf remove fast-steam-tools
+```
+
 ## Build from source
 
 Requires .NET 9 SDK. From the repository root:
@@ -86,5 +101,7 @@ powershell -NoProfile -File tools/Build-Setup.ps1
 # Linux
 bash tools/Build-Linux.sh
 ```
+
+To build the RPM on Fedora, install `rpm-build` and run `bash tools/Build-Fedora.sh` after the Linux build.
 
 Build outputs are saved in `release/`.

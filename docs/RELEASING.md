@@ -9,6 +9,6 @@
    git push origin vX.Y.Z
    ```
 
-The Release workflow checks the version, runs the existing build and sandbox workflows, verifies the packages and publishes seven assets with SHA-256 checksums. Versions below 1.0 are marked as prereleases. Publication uses the job's `GITHUB_TOKEN`; no personal token is needed.
+The Release workflow checks the version, runs the build and sandbox workflows, verifies the packages and publishes eight assets with SHA-256 checksums. The Fedora RPM uses the version from `Directory.Build.props` and shares the Linux release payload with the Arch package and tarball. CI installs, launches and removes the RPM in a Fedora container before uploading it. Versions below 1.0 are marked as prereleases. Publication uses the job's `GITHUB_TOKEN`; no personal token is needed.
 
 If publication fails after creating a draft, fix the cause and rerun the failed jobs. The workflow can resume a draft but refuses to replace a published release. For a manual workflow run, select the version tag rather than a branch.

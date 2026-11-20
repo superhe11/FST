@@ -3,6 +3,7 @@ set -euo pipefail
 package_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}/fst"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}"
+icon_theme="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
 local_bin="$HOME/.local/bin"
 startup=yes
 launch=yes
@@ -25,10 +26,12 @@ if [[ -e "$local_bin/fst" ]] && ! grep -q '^# FastSteamTools launcher$' "$local_
   echo 'A different ~/.local/bin/fst already exists; preserving it.' >&2; exit 1
 fi
 [[ ! -L "$local_bin/fst" ]] || { echo 'Refusing to replace a launcher symlink.' >&2; exit 1; }
-mkdir -p -- "$data_root/app" "$local_bin" "$config_root/autostart" "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
+mkdir -p -- "$data_root/app" "$local_bin" "$config_root/autostart" "${XDG_DATA_HOME:-$HOME/.local/share}/applications" "$icon_theme/scalable/apps"
 install -m 755 -- "$package_dir/app/fst" "$data_root/app/fst.next"
 mv -f -- "$data_root/app/fst.next" "$data_root/app/fst"
-install -m 644 -- "$package_dir/fst.svg" "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/fst.svg"
+install -m 644 -- "$package_dir/fst.svg" "$icon_theme/scalable/apps/fst.svg"
+# Notify desktops that cache icons using the theme directory's modification time.
+touch -m -- "$icon_theme"
 python3 - "$data_root/app/fst" "$local_bin/fst" "${XDG_DATA_HOME:-$HOME/.local/share}/applications/fst.desktop" "$config_root/autostart/fst.desktop" "$startup" <<'PY'
 import os, shlex, sys
 executable, launcher, entry, autostart, startup = sys.argv[1:]
@@ -37,7 +40,7 @@ with open(launcher, 'w', encoding='utf-8') as f:
 os.chmod(launcher, 0o755)
 def desktop(arguments):
     value=executable.replace('\\','\\\\').replace('"','\\"').replace('`','\\`').replace('$','\\$').replace('%','%%')
-    return '[Desktop Entry]\nType=Application\nName=Fast Steam Tools\nExec="'+value+'" '+arguments+'\nIcon=fst\nTerminal=false\nCategories=Game;Utility;\n'
+    return '[Desktop Entry]\nType=Application\nName=Fast Steam Tools\nExec="'+value+'" '+arguments+'\nIcon=fst\nStartupWMClass=fst\nTerminal=false\nCategories=Game;Utility;\n'
 with open(entry, 'w', encoding='utf-8') as f: f.write(desktop('--show'))
 if startup == 'yes':
     with open(autostart, 'w', encoding='utf-8') as f: f.write(desktop('--background'))

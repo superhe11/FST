@@ -509,7 +509,8 @@ public sealed partial class DesktopApp : Application
     }
     private void OpenPaths()
     {
-        var window = Window(570);
+        var window = Window(620);
+        var wrapper = new CheckBox { Content = L.T("Использовать установленную обёртку Steam"), IsChecked = settings.UseSteamWrapper };
         var root = new TextBox { Text = settings.SteamRoot };
         var sls = new TextBox { Text = settings.SlsLibrary };
         var luma = new TextBox { Text = settings.LumaLibrary };
@@ -519,7 +520,7 @@ public sealed partial class DesktopApp : Application
         var browse = Button("Выбрать папку", () => RunUi(async () => { var result = await window.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { AllowMultiple = false, Title = L.T("STEAM") }); if (result.Count > 0) root.Text = result[0].Path.LocalPath; }));
         var library = Button("Выбрать файл", () => RunUi(async () => { var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = false, Title = "SLSsteam.so" }); if (result.Count > 0) sls.Text = result[0].Path.LocalPath; }));
         var lumaFile = Button("Выбрать файл", () => RunUi(async () => { var result = await window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = false, Title = "liblumalinux.so" }); if (result.Count > 0) luma.Text = result[0].Path.LocalPath; }));
-        window.Content = Frame(window, Stack(Text("STEAM", 11, true), Row(root, browse), Text("SLSsteam.so", 11, true), Row(sls, library), Text("liblumalinux.so", 11, true), Row(luma, lumaFile), Text("steamidra_lite.py", 11, true), Row(tool, toolFile), status, Button("Сохранить", () =>
+        window.Content = Frame(window, Stack(Text("STEAM", 11, true), Row(root, browse), Text("SLSsteam.so", 11, true), Row(sls, library), Text("liblumalinux.so", 11, true), Row(luma, lumaFile), Text("steamidra_lite.py", 11, true), Row(tool, toolFile), wrapper, status, Button("Сохранить", () =>
         {
             try
             {
@@ -536,6 +537,7 @@ public sealed partial class DesktopApp : Application
                 var toolPath = Path.GetFullPath(tool.Text ?? "");
                 if (!File.Exists(toolPath))
                     throw new IOException(L.T("Не найден steamidra_lite.py. Обновите lumalinux или выберите инструмент в каталогах."));
+                settings.UseSteamWrapper = wrapper.IsChecked == true;
                 settings.LumaTool = toolPath;
                 settings.SteamRoot = canonical;
                 settings.SlsLibrary = so;
@@ -627,14 +629,21 @@ public sealed partial class DesktopApp : Application
             }));
         });
     }
+    internal static string? PackageRemovalCommand(string appDirectory) => Path.GetFullPath(appDirectory).TrimEnd('/') switch
+    {
+        "/opt/fst" => "sudo pacman -R fast-steam-tools-bin",
+        "/usr/libexec/fast-steam-tools" => "sudo dnf remove fast-steam-tools",
+        _ => null
+    };
+
     private void OpenUninstall()
     {
         var window = Window(310);
         var lua = new CheckBox { Content = L.T("Также удалить все добавленные Lua"), IsChecked = false };
         var error = Text("", 11, true);
-        if (Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('/') == "/opt/fst")
+        if (PackageRemovalCommand(AppContext.BaseDirectory) is { } command)
         {
-            window.Content = Frame(window, Stack(Text("Удалить FST из системы?", 19), Text(L.T("Удалите пакет командой:") + "\nsudo pacman -R fast-steam-tools-bin"), Button("OK", window.Close)));
+            window.Content = Frame(window, Stack(Text("Удалить FST из системы?", 19), Text(L.T("Удалите пакет командой:") + "\n" + command), Button("OK", window.Close)));
             window.Show();
             return;
         }

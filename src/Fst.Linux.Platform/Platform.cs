@@ -23,6 +23,7 @@ public sealed class Settings
     public string SlsConfig => Path.Combine(Xdg("XDG_CONFIG_HOME", ".config"), "SLSsteam", "config.yaml");
     public string LumaKeys { get; set; } = Path.Combine(Home, ".config", "lumalinux", "keys.txt");
     public string SteamLauncher { get; set; } = "";
+    public bool UseSteamWrapper { get; set; } = true;
     public static Settings Load()
     {
         var settings = File.Exists(FilePath) ? JsonSerializer.Deserialize<Settings>(File.ReadAllText(FilePath)) ?? new() : new Settings();
@@ -175,17 +176,19 @@ public static class SteamControl
         File.WriteAllText(marker, "");
         File.WriteAllText(Path.Combine(Settings.DataRoot, "debug-marker-created.txt"), marker);
     }
+    
     public static async Task RestartAsync(Settings settings)
     {
         await StopAsync(settings);
         Start(settings);
     }
+
     public static async Task StopAsync(Settings settings)
     {
         if (!SteamRunning())
             return;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        using (var shutdown = Process.Start(ProcessRunner.StartInfo("steam", "-shutdown")))
+        using (var shutdown = Process.Start(settings.UseSteamWrapper ? ProcessRunner.StartInfo("steam", "-shutdown") : NativeStartInfo(settings, "-shutdown")))
         {
             if (shutdown == null)
                 throw new IOException("Could not request Steam shutdown.");
@@ -203,20 +206,32 @@ public static class SteamControl
             await Task.Delay(500);
         }
     }
+
     internal static void RequireStopped()
     {
         if (OperatingSystem.IsLinux() && SteamRunning())
             throw new IOException(L.T("Перед установкой завершите Steam."));
     }
+
     public static void Start(Settings settings)
     {
         EnsureDebugMarker(settings);
-        var wrapper = File.Exists(settings.SteamLauncher);
-        var start = ProcessRunner.StartInfo(wrapper ? settings.SteamLauncher : "steam", "-cef-enable-debugging");
+        using var process = Process.Start(StartInfo(settings))
+            ?? throw new IOException("Could not start Steam.");
+    }
+
+    internal static ProcessStartInfo StartInfo(Settings settings)
+    {
+        var wrapper = settings.UseSteamWrapper && File.Exists(settings.SteamLauncher);
+        var start = settings.UseSteamWrapper
+            ? ProcessRunner.StartInfo(wrapper ? settings.SteamLauncher : "steam", "-cef-enable-debugging")
+            : NativeStartInfo(settings, "-cef-enable-debugging");
         if (!wrapper && File.Exists(settings.SlsLibrary))
         {
             var loader = Path.Combine(Path.GetDirectoryName(settings.SlsLibrary)!, "library-inject.so");
-            var audit = File.Exists(loader) && new FileInfo(loader).Length > 0 ? loader + ":" + settings.SlsLibrary : settings.SlsLibrary;
+            var audit = File.Exists(loader) && new FileInfo(loader).Length > 0
+                ? loader + ":" + settings.SlsLibrary
+                : settings.SlsLibrary;
             if (start.Environment.TryGetValue("LD_AUDIT", out var existing) && !string.IsNullOrWhiteSpace(existing))
                 audit += ":" + existing;
             start.Environment["LD_AUDIT"] = audit;
@@ -228,8 +243,20 @@ public static class SteamControl
                 preload += ":" + existing;
             start.Environment["LD_PRELOAD"] = preload;
         }
-        Process.Start(start);
+        return start;
     }
+
+    internal static ProcessStartInfo NativeStartInfo(Settings settings, params string[] args)
+    {
+        // A user-installed wrapper can shadow the native launcher on PATH. (maybe needs further invistigation)
+        const string systemLauncher = "/usr/bin/steam";
+        var launcher = File.Exists(systemLauncher) ? systemLauncher : Path.Combine(settings.SteamRoot, "steam.sh");
+        if (!Path.IsPathFullyQualified(launcher) || !File.Exists(launcher))
+            throw new IOException("Native Steam launcher not found.");
+
+        return ProcessRunner.StartInfo(launcher, args);
+    }
+
     private static bool SteamRunning()
     {
         if (!OperatingSystem.IsLinux())
